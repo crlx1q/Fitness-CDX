@@ -50,9 +50,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final provider = context.read<AppProvider>();
     if (state == AppLifecycleState.resumed) {
       // Force time sync when app comes to foreground
-      context.read<AppProvider>().forceTimeSync();
+      provider.setUsageCheckMode(UsageCheckMode.foreground);
+      provider.forceTimeSync();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      provider.setUsageCheckMode(UsageCheckMode.background);
     }
   }
 
@@ -230,6 +236,8 @@ class _HomeContent extends StatelessWidget {
                     todaySpent: _getTodaySpent(provider),
                     freeBalance: provider.dailyBalance.freeBalance,
                     earnedBalance: provider.dailyBalance.earnedBalance,
+                    debtMinutes: provider.debtMinutes,
+                    debtCreditRemaining: provider.debtCreditRemaining,
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const BalanceDetailsScreen()),
@@ -390,13 +398,13 @@ class _HomeContent extends StatelessWidget {
   Widget _buildQuickStats(BuildContext context, stats) {
     // All 7 exercises - sorted by progress (completed first)
     final exercises = [
-      _QuickStatData('💪', stats.totalPushUps, 'отжиманий', AppColors.pushUpColor),
-      _QuickStatData('🦵', stats.totalSquats, 'приседаний', AppColors.squatColor),
-      _QuickStatData('🧘', stats.totalPlankSeconds, 'сек планки', AppColors.plankColor),
-      _QuickStatData('🏃', stats.totalLunges, 'выпадов', AppColors.lungeColor),
-      _QuickStatData('⭐', stats.totalJumpingJacks, 'джампинг', AppColors.jumpingJackColor),
-      _QuickStatData('🦶', stats.totalHighKnees, 'высок.колени', AppColors.highKneesColor),
-      _QuickStatData('🔥', stats.totalFreeActivitySeconds, 'сек актив.', AppColors.fireOrange),
+      _QuickStatData('💪', stats.totalPushUps, 'отжиманий', AppColors.primary),
+      _QuickStatData('🦵', stats.totalSquats, 'приседаний', AppColors.primary),
+      _QuickStatData('🧘', stats.totalPlankSeconds, 'сек планки', AppColors.primary),
+      _QuickStatData('🏃', stats.totalLunges, 'выпадов', AppColors.primary),
+      _QuickStatData('⭐', stats.totalJumpingJacks, 'джампинг', AppColors.primary),
+      _QuickStatData('🦶', stats.totalHighKnees, 'высок.колени', AppColors.primary),
+      _QuickStatData('🔥', stats.totalFreeActivitySeconds, 'сек актив.', AppColors.primary),
     ];
     
     // Sort: exercises with progress first

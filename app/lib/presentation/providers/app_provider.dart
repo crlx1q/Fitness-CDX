@@ -17,6 +17,7 @@ class AppProvider extends ChangeNotifier {
   final NotificationService _notifications = NotificationService.instance;
   Timer? _usageCheckTimer;
   Timer? _midnightResetTimer;
+  Duration _usageCheckInterval = const Duration(seconds: 20);
 
   UserStats _userStats = UserStats();
   AppSettings _settings = AppSettings();
@@ -43,6 +44,9 @@ class AppProvider extends ChangeNotifier {
   // Balance system getters
   int get usableMinutes => _dailyBalance.usableMinutes;
   bool get canUseTime => _dailyBalance.canUseTime;
+  int get debtMinutes => _dailyBalance.debtMinutes;
+  int get debtCreditRemaining => _dailyBalance.debtCreditRemaining;
+  bool get canTakeDebt => _dailyBalance.canTakeDebt(DateTime.now());
   
   @override
   void dispose() {
@@ -105,12 +109,22 @@ class AppProvider extends ChangeNotifier {
   /// Start timer to periodically check usage stats (fast interval for responsiveness)
   void _startUsageCheckTimer() {
     _usageCheckTimer?.cancel();
-    // Check every 10 seconds - fast enough to feel responsive
-    _usageCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _usageCheckTimer = Timer.periodic(_usageCheckInterval, (_) {
       checkAndDeductUsageTime();
     });
-    // Delay first check by 3 seconds to not block startup
-    Future.delayed(const Duration(seconds: 3), checkAndDeductUsageTime);
+    // Delay first check by 5 seconds to not block startup
+    Future.delayed(const Duration(seconds: 5), checkAndDeductUsageTime);
+  }
+
+  void setUsageCheckMode(UsageCheckMode mode) {
+    final nextInterval = switch (mode) {
+      UsageCheckMode.foreground => const Duration(seconds: 20),
+      UsageCheckMode.background => const Duration(seconds: 45),
+      UsageCheckMode.workout => const Duration(seconds: 60),
+    };
+    if (_usageCheckInterval == nextInterval) return;
+    _usageCheckInterval = nextInterval;
+    _startUsageCheckTimer();
   }
   
   /// Force immediate time sync (call when app comes to foreground)
@@ -135,7 +149,10 @@ class AppProvider extends ChangeNotifier {
       if (nativeMinutes < flutterMinutes) {
         final diff = flutterMinutes - nativeMinutes;
         debugPrint('Syncing FROM native: consuming $diff minutes (native=$nativeMinutes, flutter=$flutterMinutes)');
-        await _storage.consumeBalanceTime(diff);
+        final consumed = await _storage.consumeBalanceTime(diff);
+        if (consumed > 0) {
+          await _storage.addSpentMinutesToDaily(consumed);
+        }
         _dailyBalance = _storage.getDailyBalance();
         notifyListeners();
       } else if (nativeMinutes > flutterMinutes) {
@@ -198,12 +215,14 @@ class AppProvider extends ChangeNotifier {
     
     if (deducted > 0) {
       // Use the new balance system - consumes from freeBalance first, then earnedBalance
-      await _storage.consumeBalanceTime(deducted);
+      final consumed = await _storage.consumeBalanceTime(deducted);
       _dailyBalance = _storage.getDailyBalance();
       _userStats = _storage.getUserStats();
       
       // Also update daily stats for proper tracking
-      await _storage.addSpentMinutesToDaily(deducted);
+      if (consumed > 0) {
+        await _storage.addSpentMinutesToDaily(consumed);
+      }
       
       // Sync updated balance with native
       await _native.setAvailableTime(_dailyBalance.usableMinutes);
@@ -235,7 +254,11 @@ class AppProvider extends ChangeNotifier {
     final currentUsable = _dailyBalance.usableMinutes;
     if (currentUsable != newMinutes && newMinutes < currentUsable) {
       final diff = currentUsable - newMinutes;
-      _storage.consumeBalanceTime(diff);
+      _storage.consumeBalanceTime(diff).then((consumed) {
+        if (consumed > 0) {
+          _storage.addSpentMinutesToDaily(consumed);
+        }
+      });
       _dailyBalance = _storage.getDailyBalance();
       notifyListeners();
     }
@@ -431,6 +454,26 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> takeDebtMinutes(int minutes) async {
+    final result = await _storage.takeDebtMinutes(minutes);
+    if (result) {
+      _dailyBalance = _storage.getDailyBalance();
+      await _native.setAvailableTime(_dailyBalance.usableMinutes);
+      notifyListeners();
+    }
+    return result;
+  }
+
+  Future<void> resetAllData() async {
+    await _storage.clearAllData();
+    _userStats = _storage.getUserStats();
+    _settings = _storage.getSettings();
+    _blockedApps = _storage.getBlockedApps();
+    _dailyBalance = _storage.getDailyBalance();
+    await _native.setAvailableTime(_dailyBalance.usableMinutes);
+    notifyListeners();
+  }
+
   /// Calculate reward for exercise
   int calculateReward(ExerciseType type, int count) {
     final multiplier = _settings.strikeModeEnabled 
@@ -535,4 +578,10 @@ class AppProvider extends ChangeNotifier {
   Future<void> stopBlockingService() async {
     await _native.stopBlockingService();
   }
+}
+
+enum UsageCheckMode {
+  foreground,
+  background,
+  workout,
 }

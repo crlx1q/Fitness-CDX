@@ -5,6 +5,7 @@ import 'package:fitness_coach/domain/models/blocked_app.dart';
 import 'package:fitness_coach/domain/models/user_stats.dart';
 import 'package:fitness_coach/domain/models/app_settings.dart';
 import 'package:fitness_coach/domain/models/daily_balance.dart';
+import 'package:fitness_coach/domain/models/monthly_stats.dart';
 
 /// Repository for all local storage operations using Hive
 class StorageRepository {
@@ -14,6 +15,7 @@ class StorageRepository {
   late Box<BlockedApp> _blockedAppsBox;
   late Box<UserStats> _userStatsBox;
   late Box<DailyStats> _dailyStatsBox;
+  late Box<MonthlyStats> _monthlyStatsBox;
   late Box<AppSettings> _settingsBox;
   late Box<DailyBalance> _dailyBalanceBox;
 
@@ -36,12 +38,14 @@ class StorageRepository {
     Hive.registerAdapter(DailyStatsAdapter());
     Hive.registerAdapter(AppSettingsAdapter());
     Hive.registerAdapter(DailyBalanceAdapter());
+    Hive.registerAdapter(MonthlyStatsAdapter());
 
     // Open boxes
     _exerciseBox = await Hive.openBox<ExerciseSession>(AppConstants.exerciseHistoryBox);
     _blockedAppsBox = await Hive.openBox<BlockedApp>(AppConstants.blockedAppsBox);
     _userStatsBox = await Hive.openBox<UserStats>(AppConstants.userStatsBox);
     _dailyStatsBox = await Hive.openBox<DailyStats>(AppConstants.dailyStatsBox);
+    _monthlyStatsBox = await Hive.openBox<MonthlyStats>(AppConstants.monthlyStatsBox);
     _settingsBox = await Hive.openBox<AppSettings>(AppConstants.settingsBox);
     _dailyBalanceBox = await Hive.openBox<DailyBalance>(AppConstants.dailyBalanceBox);
 
@@ -303,10 +307,23 @@ class StorageRepository {
   /// Check and perform daily reset if needed
   Future<DailyBalance> checkDailyReset(int freeAllowance) async {
     final balance = getDailyBalance();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final lastReset = DateTime.tryParse(balance.lastResetDate);
+    if (lastReset != null) {
+      var current = DateTime(lastReset.year, lastReset.month, lastReset.day);
+      while (!current.isAfter(today)) {
+        await _ensureDailyStatsForDate(current);
+        current = current.add(const Duration(days: 1));
+      }
+    } else {
+      await _ensureDailyStatsForDate(today);
+    }
     if (balance.needsDailyReset()) {
       balance.performDailyReset(freeAllowance);
       await saveDailyBalance(balance);
     }
+    await _pruneDailyStats();
     return balance;
   }
 
@@ -323,16 +340,54 @@ class StorageRepository {
   }
 
   /// Consume time from balance (uses balance first, then debt if active)
-  Future<void> consumeBalanceTime(int minutes) async {
+  Future<int> consumeBalanceTime(int minutes) async {
     final balance = getDailyBalance();
     // Use the unified consumeTime method that handles balance→debt order
-    balance.consumeTime(minutes);
+    final consumed = balance.consumeTime(minutes);
     await saveDailyBalance(balance);
     
     // Also update user stats
     final stats = getUserStats();
-    stats.totalSpentMinutes += minutes;
+    stats.totalSpentMinutes += consumed;
     await saveUserStats(stats);
+    return consumed;
+  }
+
+  Future<bool> takeDebtMinutes(int minutes) async {
+    final balance = getDailyBalance();
+    if (!balance.canTakeDebt(DateTime.now())) {
+      return false;
+    }
+    balance.takeDebt(minutes, DateTime.now());
+    await saveDailyBalance(balance);
+    return true;
+  }
+
+  Future<void> _ensureDailyStatsForDate(DateTime date) async {
+    final dateKey = DailyStats.dateToKey(date);
+    final existing = _dailyStatsBox.get(dateKey);
+    if (existing == null) {
+      await _dailyStatsBox.put(dateKey, DailyStats(dateKey: dateKey));
+    }
+  }
+
+  Future<void> _pruneDailyStats() async {
+    final now = DateTime.now();
+    final cutoff = DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: AppConstants.dailyStatsRetentionDays));
+    final toArchive = _dailyStatsBox.values
+        .where((stats) => stats.date.isBefore(cutoff))
+        .toList();
+    if (toArchive.isEmpty) {
+      return;
+    }
+    for (final daily in toArchive) {
+      final monthKey = MonthlyStats.monthToKey(daily.date);
+      final monthly = _monthlyStatsBox.get(monthKey) ?? MonthlyStats(monthKey: monthKey);
+      monthly.addDaily(daily);
+      await _monthlyStatsBox.put(monthKey, monthly);
+      await _dailyStatsBox.delete(daily.dateKey);
+    }
   }
 
   // ============ Cleanup ============
@@ -341,6 +396,7 @@ class StorageRepository {
     await _exerciseBox.clear();
     await _blockedAppsBox.clear();
     await _dailyStatsBox.clear();
+    await _monthlyStatsBox.clear();
     await _userStatsBox.clear();
     await _settingsBox.clear();
     await _dailyBalanceBox.clear();

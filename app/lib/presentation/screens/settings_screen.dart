@@ -361,32 +361,60 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   void _showResetDialog(BuildContext context, AppProvider provider) {
+    final controller = TextEditingController();
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('Сбросить данные?'),
-        content: const Text(
-          'Это действие удалит всю историю тренировок, статистику и настройки. '
-          'Это действие нельзя отменить.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              // Reset would go here
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Данные сброшены')),
-              );
-            },
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Сбросить'),
-          ),
-        ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('Сбросить данные?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Это действие удалит всю историю тренировок, статистику и настройки. '
+                  'Это действие нельзя отменить.',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: 'Подтверждение',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final value = controller.text.trim();
+                  if (value != 'Апельсин') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Неверное ключевое слово')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context);
+                  await provider.resetAllData();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Данные сброшены')),
+                    );
+                  }
+                },
+                style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                child: const Text('Сбросить'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
