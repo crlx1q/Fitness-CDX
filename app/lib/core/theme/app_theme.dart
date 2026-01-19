@@ -5,14 +5,14 @@ class AppColors {
   AppColors._();
 
   // Primary colors
-  static const Color primary = Color(0xFF6C63FF);
-  static const Color primaryLight = Color(0xFF9D97FF);
-  static const Color primaryDark = Color(0xFF4A42D4);
+  static const Color primary = Color(0xFF4C7DFF);
+  static const Color primaryLight = Color(0xFF8FB2FF);
+  static const Color primaryDark = Color(0xFF345AD6);
 
   // Accent colors
-  static const Color accent = Color(0xFF00D9FF);
-  static const Color success = Color(0xFF00E676);
-  static const Color warning = Color(0xFFFFAB00);
+  static const Color accent = Color(0xFF6BA4FF);
+  static const Color success = Color(0xFF5C8DFF);
+  static const Color warning = Color(0xFF3D6DE0);
   static const Color error = Color(0xFFFF5252);
 
   // Background colors
@@ -27,17 +27,17 @@ class AppColors {
   static const Color textHint = Color(0xFF6B6B80);
 
   // Streak fire colors
-  static const Color fireOrange = Color(0xFFFF6B35);
-  static const Color fireYellow = Color(0xFFFFD93D);
-  static const Color fireRed = Color(0xFFFF3D3D);
+  static const Color fireOrange = Color(0xFF6BA4FF);
+  static const Color fireYellow = Color(0xFF8FB2FF);
+  static const Color fireRed = Color(0xFF345AD6);
 
   // Exercise colors
-  static const Color pushUpColor = Color(0xFFFF6B6B);
-  static const Color squatColor = Color(0xFF4ECDC4);
-  static const Color plankColor = Color(0xFFFFE66D);
-  static const Color lungeColor = Color(0xFF9B59B6);
-  static const Color jumpingJackColor = Color(0xFF3498DB);
-  static const Color highKneesColor = Color(0xFF1ABC9C);
+  static const Color pushUpColor = primary;
+  static const Color squatColor = primary;
+  static const Color plankColor = primary;
+  static const Color lungeColor = primary;
+  static const Color jumpingJackColor = primary;
+  static const Color highKneesColor = primary;
 }
 
 /// App theme configuration

@@ -39,6 +39,7 @@ class AppConstants {
   static const String userStatsBox = 'user_stats';
   static const String dailyStatsBox = 'daily_stats';
   static const String dailyBalanceBox = 'daily_balance';
+  static const String monthlyStatsBox = 'monthly_stats';
 
   // Free daily allowance by difficulty (in minutes)
   static const int freeAllowanceEasy = 90;    // 1h 30min for easy
@@ -51,6 +52,10 @@ class AppConstants {
   
   // Low balance warning threshold (minutes)
   static const int lowBalanceThreshold = 5;
+
+  // Debt system
+  static const int maxDailyDebtMinutes = 60;
+  static const int dailyStatsRetentionDays = 30;
 }
 
 /// Difficulty presets

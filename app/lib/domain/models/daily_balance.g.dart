@@ -20,19 +20,28 @@ class DailyBalanceAdapter extends TypeAdapter<DailyBalance> {
       lastResetDate: fields[0] as String?,
       freeBalance: fields[1] as int? ?? 0,
       earnedBalance: fields[4] as int? ?? 0,
+      debtMinutes: fields[5] as int? ?? 0,
+      debtCreditRemaining: fields[6] as int? ?? 0,
+      lastDebtDate: fields[7] as String? ?? '',
     );
   }
 
   @override
   void write(BinaryWriter writer, DailyBalance obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(6)
       ..writeByte(0)
       ..write(obj.lastResetDate)
       ..writeByte(1)
       ..write(obj.freeBalance)
       ..writeByte(4)
-      ..write(obj.earnedBalance);
+      ..write(obj.earnedBalance)
+      ..writeByte(5)
+      ..write(obj.debtMinutes)
+      ..writeByte(6)
+      ..write(obj.debtCreditRemaining)
+      ..writeByte(7)
+      ..write(obj.lastDebtDate);
   }
 
   @override
