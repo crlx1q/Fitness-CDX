@@ -147,14 +147,26 @@ class AppProvider extends ChangeNotifier {
       // If native has less time than Flutter, native deducted while app was closed
       // We need to consume the difference in Flutter's Hive storage
       if (nativeMinutes < flutterMinutes) {
-        final diff = flutterMinutes - nativeMinutes;
-        debugPrint('Syncing FROM native: consuming $diff minutes (native=$nativeMinutes, flutter=$flutterMinutes)');
-        final consumed = await _storage.consumeBalanceTime(diff);
-        if (consumed > 0) {
-          await _storage.addSpentMinutesToDaily(consumed);
+        final isFreshSession = nativeMinutes == 0 &&
+            _userStats.totalSpentMinutes == 0 &&
+            _dailyBalance.earnedBalance == 0 &&
+            _dailyBalance.debtMinutes == 0 &&
+            _dailyBalance.debtCreditRemaining == 0 &&
+            _dailyBalance.freeBalance == _settings.difficulty.freeAllowanceMinutes;
+        if (isFreshSession) {
+          debugPrint('Syncing TO native: setting $flutterMinutes minutes (fresh start)');
+          await _native.setAvailableTime(flutterMinutes);
+        } else {
+          final diff = flutterMinutes - nativeMinutes;
+          debugPrint('Syncing FROM native: consuming $diff minutes (native=$nativeMinutes, flutter=$flutterMinutes)');
+          final consumed = await _storage.consumeBalanceTime(diff);
+          if (consumed > 0) {
+            await _storage.addSpentMinutesToDaily(consumed);
+          }
+          _dailyBalance = _storage.getDailyBalance();
+          _userStats = _storage.getUserStats();
+          notifyListeners();
         }
-        _dailyBalance = _storage.getDailyBalance();
-        notifyListeners();
       } else if (nativeMinutes > flutterMinutes) {
         // Flutter has less - sync TO native (Flutter is source of truth for earned time)
         debugPrint('Syncing TO native: setting $flutterMinutes minutes');

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fitness_coach/core/theme/app_theme.dart';
 import 'package:fitness_coach/domain/models/blocked_app.dart';
 import 'package:fitness_coach/presentation/providers/app_provider.dart';
+import 'package:fitness_coach/core/utils/time_formatter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 /// Screen for managing blocked apps
@@ -524,7 +525,7 @@ class _AppListTile extends StatelessWidget {
         ),
         subtitle: Text(
           app.totalUsedMinutes > 0 
-              ? 'Использовано: ${app.totalUsedMinutes} мин'
+              ? 'Использовано: ${formatMinutes(app.totalUsedMinutes)}'
               : 'Заблокировано',
           style: Theme.of(context).textTheme.bodySmall,
           maxLines: 1,
