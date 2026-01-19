@@ -256,6 +256,10 @@ class StorageRepository {
     return stats;
   }
 
+  List<DailyStats> getAllDailyStats() {
+    return _dailyStatsBox.values.toList();
+  }
+
   // ============ Blocked Apps ============
 
   List<BlockedApp> getBlockedApps() {
