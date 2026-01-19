@@ -114,8 +114,17 @@ class AppBlockerService : AccessibilityService() {
                     .apply()
             }
             
-            val lastCheckedUsage = prefs.getLong("last_blocked_usage", 0L)
             val currentUsage = getBlockedAppsUsageMinutes()
+            val hasBaseline = prefs.getBoolean("has_usage_baseline", false)
+            if (!hasBaseline) {
+                prefs.edit()
+                    .putLong("last_blocked_usage", currentUsage)
+                    .putBoolean("has_usage_baseline", true)
+                    .apply()
+                return
+            }
+
+            val lastCheckedUsage = prefs.getLong("last_blocked_usage", 0L)
             val newUsage = (currentUsage - lastCheckedUsage).coerceAtLeast(0L).toInt()
             
             if (newUsage > 0 && MainActivity.availableMinutes > 0) {

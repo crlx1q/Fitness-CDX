@@ -578,6 +578,11 @@ class AppProvider extends ChangeNotifier {
     return _storage.getDailyStatsRange(start, end);
   }
 
+  /// Get all recorded daily stats
+  List<DailyStats> getAllDailyStats() {
+    return _storage.getAllDailyStats();
+  }
+
   // ============ Blocking Service ============
 
   /// Start the app blocking service

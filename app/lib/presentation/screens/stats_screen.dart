@@ -16,8 +16,6 @@ class StatsScreen extends StatefulWidget {
 }
 
 class _StatsScreenState extends State<StatsScreen> {
-  int _selectedPeriod = 0; // 0 = week, 1 = month
-
   @override
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
@@ -88,24 +86,14 @@ class _StatsScreenState extends State<StatsScreen> {
                 ),
               ),
 
-              // Period selector
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Активность',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Spacer(),
-                      _PeriodSelector(
-                        selectedIndex: _selectedPeriod,
-                        onSelected: (index) => setState(() => _selectedPeriod = index),
-                      ),
-                    ],
+                  child: Text(
+                    'Активность',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
@@ -142,11 +130,22 @@ class _StatsScreenState extends State<StatsScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-                  child: Text(
-                    'Дни',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Дни',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${dailyStats.length} записано',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -191,11 +190,8 @@ class _StatsScreenState extends State<StatsScreen> {
   }
 
   List<DailyStats> _getDailyStats(AppProvider provider) {
-    final now = DateTime.now();
-    final days = _selectedPeriod == 0 ? 7 : 30;
-    final start = DateTime(now.year, now.month, now.day - days + 1);
-    final end = DateTime(now.year, now.month, now.day + 1);
-    final stats = provider.getDailyStats(start, end)
+    final stats = provider
+        .getAllDailyStats()
         .where((stat) => _hasRecordedActivity(stat))
         .toList();
     stats.sort((a, b) => a.date.compareTo(b.date));
@@ -375,6 +371,7 @@ class _StatsScreenState extends State<StatsScreen> {
               const SizedBox(height: 16),
               _DailyStatLine(label: 'Заработано', value: _formatMinutes(stats.earnedMinutes)),
               _DailyStatLine(label: 'Потрачено', value: _formatMinutes(stats.spentMinutes)),
+              _DailyStatLine(label: 'Время в приложениях', value: _formatMinutes(stats.spentMinutes)),
               _DailyStatLine(label: 'Тренировок', value: stats.workoutCount.toString()),
               _DailyStatLine(label: 'Отжиманий', value: stats.pushUps.toString()),
               _DailyStatLine(label: 'Приседаний', value: stats.squats.toString()),
@@ -627,76 +624,6 @@ class _SummaryCard extends StatelessWidget {
         ],
       ),
     ).animate().fadeIn().slideX(begin: 0.1, end: 0);
-  }
-}
-
-class _PeriodSelector extends StatelessWidget {
-  final int selectedIndex;
-  final Function(int) onSelected;
-
-  const _PeriodSelector({
-    required this.selectedIndex,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          _PeriodButton(
-            label: 'Неделя',
-            isSelected: selectedIndex == 0,
-            onTap: () => onSelected(0),
-          ),
-          _PeriodButton(
-            label: 'Месяц',
-            isSelected: selectedIndex == 1,
-            onTap: () => onSelected(1),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PeriodButton extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _PeriodButton({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
   }
 }
 
