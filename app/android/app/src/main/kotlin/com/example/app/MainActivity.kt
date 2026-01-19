@@ -338,9 +338,26 @@ class MainActivity : FlutterActivity() {
     // Returns the number of minutes deducted
     private fun checkAndDeductBlockedAppsTime(): Int {
         val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
-        val lastCheckedUsage = prefs.getLong("last_blocked_usage", 0L)
-        
+        val currentDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
+        val lastCheckedDay = prefs.getInt("last_checked_day", -1)
+        if (lastCheckedDay != currentDay) {
+            prefs.edit()
+                .putLong("last_blocked_usage", 0L)
+                .putInt("last_checked_day", currentDay)
+                .apply()
+        }
+
         val currentUsage = getBlockedAppsUsageMinutes()
+        val hasBaseline = prefs.getBoolean("has_usage_baseline", false)
+        if (!hasBaseline) {
+            prefs.edit()
+                .putLong("last_blocked_usage", currentUsage)
+                .putBoolean("has_usage_baseline", true)
+                .apply()
+            return 0
+        }
+
+        val lastCheckedUsage = prefs.getLong("last_blocked_usage", 0L)
         val newUsage = (currentUsage - lastCheckedUsage).coerceAtLeast(0L).toInt()
         
         if (newUsage > 0 && availableMinutes > 0) {

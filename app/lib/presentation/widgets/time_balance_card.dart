@@ -158,7 +158,9 @@ class TimeBalanceCard extends StatelessWidget {
               const SizedBox(height: 16),
               const Divider(color: AppColors.surfaceLight),
               const SizedBox(height: 12),
-              Row(
+              Wrap(
+                spacing: 24,
+                runSpacing: 12,
                 children: [
                   if (todayEarned > 0)
                     _buildTodayStat(
@@ -168,8 +170,6 @@ class TimeBalanceCard extends StatelessWidget {
                       color: AppColors.success,
                       label: 'Заработано',
                     ),
-                  if (todayEarned > 0 && todaySpent > 0)
-                    const SizedBox(width: 24),
                   if (todaySpent > 0)
                     _buildTodayStat(
                       context,
@@ -235,6 +235,7 @@ class TimeBalanceCard extends StatelessWidget {
   }) {
     final textColor = dimmed ? AppColors.textHint : AppColors.textSecondary;
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(icon, style: const TextStyle(fontSize: 12)),
         const SizedBox(width: 4),
