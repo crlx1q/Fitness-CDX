@@ -47,6 +47,11 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
     _initializeCamera();
     // Keep screen on during exercise
     WakelockPlus.enable();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AppProvider>().setUsageCheckMode(UsageCheckMode.workout);
+      }
+    });
   }
 
   void _listenToPoseUpdates() {
@@ -213,6 +218,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    context.read<AppProvider>().setUsageCheckMode(UsageCheckMode.foreground);
     // Disable wakelock when leaving
     WakelockPlus.disable();
     try {

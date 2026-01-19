@@ -14,28 +14,63 @@ class DailyBalance extends HiveObject {
   @HiveField(4)
   int earnedBalance; // Extra balance earned through workouts
 
+  @HiveField(5)
+  int debtMinutes; // Minutes owed from debt usage
+
+  @HiveField(6)
+  int debtCreditRemaining; // Remaining debt credits available today
+
+  @HiveField(7)
+  String lastDebtDate; // Format: yyyy-MM-dd - last day debt was taken
+
   DailyBalance({
     String? lastResetDate,
     this.freeBalance = 0,
     this.earnedBalance = 0,
-  }) : lastResetDate = lastResetDate ?? _dateToKey(DateTime.now());
+    this.debtMinutes = 0,
+    this.debtCreditRemaining = 0,
+    String? lastDebtDate,
+  })  : lastResetDate = lastResetDate ?? _dateToKey(DateTime.now()),
+        lastDebtDate = lastDebtDate ?? '';
 
   /// Total available minutes from balance (free + earned)
   int get balanceMinutes => freeBalance + earnedBalance;
 
   /// Total usable minutes
-  int get usableMinutes => freeBalance + earnedBalance;
+  int get usableMinutes {
+    if (debtMinutes > 0) {
+      return debtCreditRemaining;
+    }
+    return freeBalance + earnedBalance + debtCreditRemaining;
+  }
+
+  bool get hasDebt => debtMinutes > 0;
+  bool get hasDebtCredit => debtCreditRemaining > 0;
 
   /// Check if user can use balance (has usable time)
-  bool get canUseTime => usableMinutes > 0;
+  bool get canUseTime => usableMinutes > 0 && (!hasDebt || hasDebtCredit);
 
-  /// Consume time - uses free balance first, then earned
+  /// Consume time - uses debt credits first, then free balance, then earned
   /// Returns actual minutes consumed (may be less if not enough available)
   int consumeTime(int minutes) {
     if (minutes <= 0) return 0;
     
     int remaining = minutes;
     int consumed = 0;
+
+    // 0. First consume from debt credits (borrowed time)
+    if (debtCreditRemaining > 0 && remaining > 0) {
+      final fromDebt = remaining.clamp(0, debtCreditRemaining);
+      debtCreditRemaining -= fromDebt;
+      remaining -= fromDebt;
+      consumed += fromDebt;
+      debtMinutes += fromDebt;
+    }
+
+    // If debt exists, stop further spending until repaid
+    if (debtMinutes > 0) {
+      return consumed;
+    }
     
     // 1. First consume from free balance
     if (freeBalance > 0 && remaining > 0) {
@@ -57,9 +92,18 @@ class DailyBalance extends HiveObject {
   }
 
   /// Add earned minutes to balance
-  void addEarnedMinutes(int minutes) {
-    if (minutes <= 0) return;
-    earnedBalance += minutes;
+  int addEarnedMinutes(int minutes) {
+    if (minutes <= 0) return 0;
+    var remaining = minutes;
+    if (debtMinutes > 0) {
+      final paid = remaining.clamp(0, debtMinutes);
+      debtMinutes -= paid;
+      remaining -= paid;
+    }
+    if (remaining > 0 && debtMinutes == 0) {
+      earnedBalance += remaining;
+    }
+    return remaining;
   }
 
   /// Check if needs daily reset
@@ -77,6 +121,19 @@ class DailyBalance extends HiveObject {
     // Reset balances
     freeBalance = freeAllowance;
     earnedBalance = 0;
+    debtCreditRemaining = 0;
+  }
+
+  bool canTakeDebt(DateTime now) {
+    if (debtMinutes > 0 || debtCreditRemaining > 0) return false;
+    final today = _dateToKey(now);
+    return lastDebtDate != today;
+  }
+
+  void takeDebt(int minutes, DateTime now) {
+    final today = _dateToKey(now);
+    lastDebtDate = today;
+    debtCreditRemaining = minutes;
   }
 
   /// Format balance for display
@@ -98,11 +155,17 @@ class DailyBalance extends HiveObject {
     String? lastResetDate,
     int? freeBalance,
     int? earnedBalance,
+    int? debtMinutes,
+    int? debtCreditRemaining,
+    String? lastDebtDate,
   }) {
     return DailyBalance(
       lastResetDate: lastResetDate ?? this.lastResetDate,
       freeBalance: freeBalance ?? this.freeBalance,
       earnedBalance: earnedBalance ?? this.earnedBalance,
+      debtMinutes: debtMinutes ?? this.debtMinutes,
+      debtCreditRemaining: debtCreditRemaining ?? this.debtCreditRemaining,
+      lastDebtDate: lastDebtDate ?? this.lastDebtDate,
     );
   }
 }

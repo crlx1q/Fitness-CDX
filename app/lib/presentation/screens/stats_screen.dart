@@ -69,19 +69,19 @@ class _StatsScreenState extends State<StatsScreen> {
                         title: 'Текущий стрик',
                         value: '${stats.currentStreak} дн.',
                         icon: Icons.local_fire_department,
-                        color: AppColors.fireOrange,
+                        color: AppColors.primary,
                       ),
                       _SummaryCard(
                         title: 'Лучший стрик',
                         value: '${stats.longestStreak} дн.',
                         icon: Icons.emoji_events,
-                        color: AppColors.warning,
+                        color: AppColors.primary,
                       ),
                       _SummaryCard(
                         title: 'Заработано времени',
                         value: _formatMinutes(stats.totalEarnedMinutes),
                         icon: Icons.timer,
-                        color: AppColors.success,
+                        color: AppColors.primary,
                       ),
                     ],
                   ),
@@ -138,6 +138,34 @@ class _StatsScreenState extends State<StatsScreen> {
                 ).animate().fadeIn().slideY(begin: 0.1, end: 0),
               ),
 
+              // Daily breakdown
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+                  child: Text(
+                    'Дни',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final dayStats = dailyStats[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                      child: _DailyStatsTile(
+                        stats: dayStats,
+                        onTap: () => _showDailyDetails(context, dayStats),
+                      ),
+                    );
+                  },
+                  childCount: dailyStats.length,
+                ),
+              ),
+
               // Exercise breakdown - compact progress view
               SliverToBoxAdapter(
                 child: Padding(
@@ -176,7 +204,18 @@ class _StatsScreenState extends State<StatsScreen> {
     final days = _selectedPeriod == 0 ? 7 : 30;
     final start = DateTime(now.year, now.month, now.day - days + 1);
     final end = DateTime(now.year, now.month, now.day + 1);
-    return provider.getDailyStats(start, end);
+    final stats = provider.getDailyStats(start, end);
+    final filtered = stats.where((stat) {
+      return stat.earnedMinutes > 0 ||
+          stat.spentMinutes > 0 ||
+          stat.workoutCount > 0 ||
+          stat.pushUps > 0 ||
+          stat.squats > 0 ||
+          stat.plankSeconds > 0 ||
+          stat.freeActivitySeconds > 0;
+    }).toList();
+    filtered.sort((a, b) => b.date.compareTo(a.date));
+    return filtered;
   }
 
   Widget _buildChart(List<DailyStats> dailyStats) {
@@ -189,22 +228,12 @@ class _StatsScreenState extends State<StatsScreen> {
       );
     }
 
-    final days = _selectedPeriod == 0 ? 7 : 30;
-    final now = DateTime.now();
-    
-    // Create data map for quick lookup
-    final dataMap = <String, int>{};
-    for (final stat in dailyStats) {
-      dataMap[stat.dateKey] = stat.earnedMinutes;
-    }
-
-    // Generate bars for each day
+    final ordered = dailyStats.toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    // Generate bars for each recorded day
     final bars = <BarChartGroupData>[];
-    for (int i = 0; i < days; i++) {
-      final date = DateTime(now.year, now.month, now.day - days + 1 + i);
-      final key = DailyStats.dateToKey(date);
-      final value = dataMap[key] ?? 0;
-      
+    for (int i = 0; i < ordered.length; i++) {
+      final value = ordered[i].earnedMinutes;
       bars.add(
         BarChartGroupData(
           x: i,
@@ -212,7 +241,7 @@ class _StatsScreenState extends State<StatsScreen> {
             BarChartRodData(
               toY: value.toDouble(),
               color: AppColors.primary,
-              width: days == 7 ? 24 : 8,
+              width: ordered.length <= 7 ? 24 : 10,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
             ),
           ],
@@ -220,15 +249,19 @@ class _StatsScreenState extends State<StatsScreen> {
       );
     }
 
+    final maxValue = ordered
+        .map((s) => s.earnedMinutes)
+        .reduce((a, b) => a > b ? a : b);
+
     return BarChart(
       BarChartData(
         alignment: BarChartAlignment.spaceAround,
-        maxY: (dailyStats.map((s) => s.earnedMinutes).reduce((a, b) => a > b ? a : b) * 1.2).toDouble(),
+        maxY: maxValue == 0 ? 1 : (maxValue * 1.2).toDouble(),
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
             getTooltipColor: (_) => AppColors.surfaceLight,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
-              final date = DateTime(now.year, now.month, now.day - days + 1 + group.x);
+              final date = ordered[group.x].date;
               return BarTooltipItem(
                 '${DateFormat('d MMM', 'ru').format(date)}\n${rod.toY.toInt()} мин',
                 const TextStyle(color: AppColors.textPrimary, fontSize: 12),
@@ -242,8 +275,13 @@ class _StatsScreenState extends State<StatsScreen> {
             sideTitles: SideTitles(
               showTitles: true,
               getTitlesWidget: (value, meta) {
-                if (days == 7) {
-                  final date = DateTime(now.year, now.month, now.day - days + 1 + value.toInt());
+                if (ordered.isEmpty) return const SizedBox.shrink();
+                if (ordered.length <= 7) {
+                  final index = value.toInt();
+                  if (index < 0 || index >= ordered.length) {
+                    return const SizedBox.shrink();
+                  }
+                  final date = ordered[index].date;
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
@@ -252,9 +290,10 @@ class _StatsScreenState extends State<StatsScreen> {
                     ),
                   );
                 }
-                // Show every 5th day for month view
-                if (value.toInt() % 5 == 0) {
-                  final date = DateTime(now.year, now.month, now.day - days + 1 + value.toInt());
+                // Show every 3rd day for longer ranges
+                final index = value.toInt();
+                if (index % 3 == 0 && index < ordered.length) {
+                  final date = ordered[index].date;
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
@@ -282,6 +321,7 @@ class _StatsScreenState extends State<StatsScreen> {
     // Find best day
     DailyStats? bestDay;
     for (final day in dailyStats) {
+      if (day.earnedMinutes <= 0) continue;
       if (bestDay == null || day.earnedMinutes > bestDay.earnedMinutes) {
         bestDay = day;
       }
@@ -299,14 +339,14 @@ class _StatsScreenState extends State<StatsScreen> {
           children: [
             _RecordRow(
               icon: Icons.emoji_events,
-              iconColor: AppColors.warning,
+              iconColor: AppColors.primary,
               title: 'Лучший стрик',
               value: '${stats.longestStreak} дней',
             ),
             const Divider(color: AppColors.surfaceLight, height: 24),
             _RecordRow(
               icon: Icons.star,
-              iconColor: AppColors.success,
+              iconColor: AppColors.primary,
               title: 'Лучший день',
               value: bestDay != null 
                   ? '${_formatMinutes(bestDay.earnedMinutes)} (${DateFormat('d MMM').format(bestDay.date)})' 
@@ -322,7 +362,7 @@ class _StatsScreenState extends State<StatsScreen> {
             const Divider(color: AppColors.surfaceLight, height: 24),
             _RecordRow(
               icon: Icons.phone_android,
-              iconColor: AppColors.error,
+              iconColor: AppColors.primary,
               title: 'Потрачено времени',
               value: _formatMinutes(stats.totalSpentMinutes),
             ),
@@ -332,14 +372,136 @@ class _StatsScreenState extends State<StatsScreen> {
     ).animate().fadeIn(delay: 300.ms);
   }
 
-  String _formatMinutes(int minutes) {
-    if (minutes >= 60) {
-      final hours = minutes ~/ 60;
-      final mins = minutes % 60;
-      return mins > 0 ? '${hours}ч ${mins}м' : '${hours}ч';
-    }
-    return '${minutes}м';
+  String _formatMinutes(int minutes) => _formatMinutesValue(minutes);
+
+  void _showDailyDetails(BuildContext context, DailyStats stats) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                DateFormat('d MMMM', 'ru').format(stats.date),
+                style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              _DailyStatLine(label: 'Заработано', value: _formatMinutes(stats.earnedMinutes)),
+              _DailyStatLine(label: 'Потрачено', value: _formatMinutes(stats.spentMinutes)),
+              _DailyStatLine(label: 'Тренировок', value: stats.workoutCount.toString()),
+              _DailyStatLine(label: 'Отжиманий', value: stats.pushUps.toString()),
+              _DailyStatLine(label: 'Приседаний', value: stats.squats.toString()),
+              _DailyStatLine(label: 'Планка', value: '${stats.plankSeconds} сек'),
+              _DailyStatLine(label: 'Активность', value: '${stats.freeActivitySeconds} сек'),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
   }
+}
+
+class _DailyStatsTile extends StatelessWidget {
+  final DailyStats stats;
+  final VoidCallback onTap;
+
+  const _DailyStatsTile({
+    required this.stats,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasActivity = stats.earnedMinutes > 0 || stats.spentMinutes > 0 || stats.workoutCount > 0;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hasActivity ? AppColors.primary.withValues(alpha: 0.3) : AppColors.surfaceLight,
+          ),
+        ),
+        child: Row(
+          children: [
+            Text(
+              DateFormat('d MMM', 'ru').format(stats.date),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const Spacer(),
+            Text(
+              _formatMinutesValue(stats.earnedMinutes),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: hasActivity ? AppColors.primary : AppColors.textHint,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(width: 12),
+            Icon(Icons.chevron_right, color: AppColors.textSecondary, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyStatLine extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DailyStatLine({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+            ),
+          ),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatMinutesValue(int minutes) {
+  if (minutes >= 60) {
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    return mins > 0 ? '${hours}ч ${mins}м' : '${hours}ч';
+  }
+  return '${minutes}м';
 }
 
 class _SummaryCard extends StatelessWidget {

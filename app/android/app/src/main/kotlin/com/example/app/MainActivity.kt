@@ -3,6 +3,7 @@ package com.fitlock.app
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -11,6 +12,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.app.admin.DevicePolicyManager
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
@@ -117,6 +119,17 @@ class MainActivity : FlutterActivity() {
                     openUsageStatsSettings()
                     result.success(null)
                 }
+                "isDeviceAdminEnabled" -> {
+                    result.success(isDeviceAdminEnabled())
+                }
+                "requestDeviceAdmin" -> {
+                    requestDeviceAdmin()
+                    result.success(null)
+                }
+                "removeDeviceAdmin" -> {
+                    removeDeviceAdmin()
+                    result.success(null)
+                }
                 "startBlockingService" -> {
                     result.success(isAccessibilityServiceEnabled())
                 }
@@ -136,6 +149,30 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+        }
+    }
+
+    private fun adminComponentName(): ComponentName {
+        return ComponentName(this, FitLockDeviceAdminReceiver::class.java)
+    }
+
+    private fun isDeviceAdminEnabled(): Boolean {
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        return dpm.isAdminActive(adminComponentName())
+    }
+
+    private fun requestDeviceAdmin() {
+        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponentName())
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "")
+        }
+        startActivity(intent)
+    }
+
+    private fun removeDeviceAdmin() {
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        if (dpm.isAdminActive(adminComponentName())) {
+            dpm.removeActiveAdmin(adminComponentName())
         }
     }
 

@@ -248,6 +248,12 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                           isGranted: provider.hasUsageStatsPermission,
                           onTap: provider.openUsageStatsSettings,
                         ),
+                        const Divider(color: AppColors.surfaceLight, height: 1),
+                        _DeviceAdminTile(
+                          isGranted: provider.hasDeviceAdminPermission,
+                          onEnable: provider.requestDeviceAdmin,
+                          onDisable: () => _showDisableAdminDialog(context, provider),
+                        ),
                       ],
                     ),
                   ).animate().fadeIn(),
@@ -361,32 +367,117 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   void _showResetDialog(BuildContext context, AppProvider provider) {
+    final controller = TextEditingController();
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('Сбросить данные?'),
-        content: const Text(
-          'Это действие удалит всю историю тренировок, статистику и настройки. '
-          'Это действие нельзя отменить.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              // Reset would go here
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Данные сброшены')),
-              );
-            },
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Сбросить'),
-          ),
-        ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('Сбросить данные?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Это действие удалит всю историю тренировок, статистику и настройки. '
+                  'Это действие нельзя отменить.',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: 'Подтверждение',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final value = controller.text.trim();
+                  if (value != 'Апельсин') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Неверное ключевое слово')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context);
+                  await provider.resetAllData();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Данные сброшены')),
+                    );
+                  }
+                },
+                style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                child: const Text('Сбросить'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showDisableAdminDialog(BuildContext context, AppProvider provider) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('Отключить администратора?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Это действие снизит уровень защиты.'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: 'Подтверждение',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final value = controller.text.trim();
+                  if (value != 'Апельсин') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Неверное ключевое слово')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context);
+                  await provider.removeDeviceAdmin();
+                  await provider.refreshPermissions();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Администратор отключён')),
+                    );
+                  }
+                },
+                style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                child: const Text('Отключить'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -702,6 +793,49 @@ class _PermissionTile extends StatelessWidget {
               child: const Text('Открыть'),
             ),
       onTap: isGranted ? null : onTap,
+    );
+  }
+}
+
+class _DeviceAdminTile extends StatelessWidget {
+  final bool isGranted;
+  final VoidCallback onEnable;
+  final VoidCallback onDisable;
+
+  const _DeviceAdminTile({
+    required this.isGranted,
+    required this.onEnable,
+    required this.onDisable,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(
+        Icons.admin_panel_settings,
+        color: isGranted ? AppColors.success : AppColors.textSecondary,
+      ),
+      title: const Text('Администратор устройства'),
+      subtitle: Text(
+        isGranted ? 'Активен' : 'Неактивен',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      trailing: isGranted
+          ? OutlinedButton(
+              onPressed: onDisable,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              child: const Text('Отключить'),
+            )
+          : OutlinedButton(
+              onPressed: onEnable,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              child: const Text('Включить'),
+            ),
+      onTap: isGranted ? onDisable : onEnable,
     );
   }
 }

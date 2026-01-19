@@ -214,6 +214,35 @@ class NativeBridge {
     }
   }
 
+  /// Check if device admin is enabled
+  Future<bool> isDeviceAdminEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isDeviceAdminEnabled');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('Failed to check device admin: ${e.message}');
+      return false;
+    }
+  }
+
+  /// Request device admin
+  Future<void> requestDeviceAdmin() async {
+    try {
+      await _channel.invokeMethod('requestDeviceAdmin');
+    } on PlatformException catch (e) {
+      print('Failed to request device admin: ${e.message}');
+    }
+  }
+
+  /// Remove device admin
+  Future<void> removeDeviceAdmin() async {
+    try {
+      await _channel.invokeMethod('removeDeviceAdmin');
+    } on PlatformException catch (e) {
+      print('Failed to remove device admin: ${e.message}');
+    }
+  }
+
   /// Start blocking service
   Future<bool> startBlockingService() async {
     try {

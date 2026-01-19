@@ -9,6 +9,8 @@ class TimeBalanceCard extends StatelessWidget {
   final VoidCallback? onTap;
   final int freeBalance;
   final int earnedBalance;
+  final int debtMinutes;
+  final int debtCreditRemaining;
 
   const TimeBalanceCard({
     super.key,
@@ -18,11 +20,16 @@ class TimeBalanceCard extends StatelessWidget {
     this.onTap,
     this.freeBalance = 0,
     this.earnedBalance = 0,
+    this.debtMinutes = 0,
+    this.debtCreditRemaining = 0,
   });
 
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = AppColors.primary;
+    final hasDebt = debtMinutes > 0;
+    final isLockedByDebt = hasDebt && debtCreditRemaining == 0;
+    final balanceColor = isLockedByDebt ? AppColors.textSecondary : AppColors.textPrimary;
     
     return GestureDetector(
       onTap: onTap,
@@ -85,9 +92,9 @@ class TimeBalanceCard extends StatelessWidget {
                   _formatTime(availableMinutes),
                   style: Theme.of(context).textTheme.displayMedium?.copyWith(
                     fontWeight: FontWeight.w800,
-                    color: availableMinutes > 0 
-                        ? AppColors.textPrimary
-                        : AppColors.error,
+                    color: availableMinutes > 0
+                        ? balanceColor
+                        : (isLockedByDebt ? AppColors.textSecondary : AppColors.error),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -104,16 +111,23 @@ class TimeBalanceCard extends StatelessWidget {
             ),
             
             // Show breakdown if has both free and earned
-            if (freeBalance > 0 || earnedBalance > 0) ...[
+            if (freeBalance > 0 ||
+                earnedBalance > 0 ||
+                debtMinutes > 0 ||
+                debtCreditRemaining > 0) ...[
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
                 children: [
-                  if (freeBalance > 0) ...[
-                    _buildMiniStat(context, '🎁', '$freeBalance мин', 'бесплатно'),
-                    const SizedBox(width: 16),
-                  ],
+                  if (debtCreditRemaining > 0)
+                    _buildMiniStat(context, '⏳', debtCreditRemaining, 'в долг'),
+                  if (debtMinutes > 0)
+                    _buildMiniStat(context, '🧾', debtMinutes, 'долг', dimmed: true),
+                  if (freeBalance > 0)
+                    _buildMiniStat(context, '🎁', freeBalance, 'бесплатно'),
                   if (earnedBalance > 0)
-                    _buildMiniStat(context, '💪', '$earnedBalance мин', 'заработано'),
+                    _buildMiniStat(context, '💪', earnedBalance, 'заработано'),
                 ],
               ),
             ],
@@ -129,7 +143,7 @@ class TimeBalanceCard extends StatelessWidget {
                     _buildTodayStat(
                       context,
                       icon: Icons.add_circle_outline,
-                      value: '+$todayEarned мин',
+                      value: _formatSignedMinutes(todayEarned, isPositive: true),
                       color: AppColors.success,
                       label: 'Заработано',
                     ),
@@ -139,7 +153,7 @@ class TimeBalanceCard extends StatelessWidget {
                     _buildTodayStat(
                       context,
                       icon: Icons.remove_circle_outline,
-                      value: '-$todaySpent мин',
+                      value: _formatSignedMinutes(todaySpent, isPositive: false),
                       color: AppColors.error,
                       label: 'Потрачено',
                     ),
@@ -150,7 +164,7 @@ class TimeBalanceCard extends StatelessWidget {
             // Zero balance - show workout prompt
             if (availableMinutes <= 0) ...[
               const SizedBox(height: 16),
-              _buildZeroBalanceSection(context),
+              _buildZeroBalanceSection(context, isLockedByDebt),
             ],
           ],
         ),
@@ -158,7 +172,7 @@ class TimeBalanceCard extends StatelessWidget {
     );
   }
 
-  Widget _buildZeroBalanceSection(BuildContext context) {
+  Widget _buildZeroBalanceSection(BuildContext context, bool isLockedByDebt) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -178,7 +192,9 @@ class TimeBalanceCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Потренируйтесь, чтобы заработать время',
+              isLockedByDebt
+                  ? 'Сначала отработайте долг, чтобы снова пользоваться временем'
+                  : 'Потренируйтесь, чтобы заработать время',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AppColors.error,
               ),
@@ -189,7 +205,15 @@ class TimeBalanceCard extends StatelessWidget {
     );
   }
 
-  Widget _buildMiniStat(BuildContext context, String icon, String value, String label) {
+  Widget _buildMiniStat(
+    BuildContext context,
+    String icon,
+    int minutes,
+    String label, {
+    bool dimmed = false,
+  }) {
+    final textColor = dimmed ? AppColors.textHint : AppColors.textSecondary;
+    final value = _formatMinutes(minutes);
     return Row(
       children: [
         Text(icon, style: const TextStyle(fontSize: 12)),
@@ -197,7 +221,7 @@ class TimeBalanceCard extends StatelessWidget {
         Text(
           value,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppColors.textSecondary,
+            color: textColor,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -205,7 +229,7 @@ class TimeBalanceCard extends StatelessWidget {
         Text(
           label,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppColors.textHint,
+            color: dimmed ? AppColors.textHint : AppColors.textHint,
             fontSize: 10,
           ),
         ),
@@ -258,6 +282,24 @@ class TimeBalanceCard extends StatelessWidget {
       return '${hours}ч';
     }
     return '${mins}м';
+  }
+
+  String _formatMinutes(int minutes) {
+    if (minutes <= 0) return '0м';
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    if (hours > 0 && mins > 0) {
+      return '${hours}ч ${mins}м';
+    }
+    if (hours > 0) {
+      return '${hours}ч';
+    }
+    return '${mins}м';
+  }
+
+  String _formatSignedMinutes(int minutes, {required bool isPositive}) {
+    final formatted = _formatMinutes(minutes);
+    return isPositive ? '+$formatted' : '-$formatted';
   }
 }
 

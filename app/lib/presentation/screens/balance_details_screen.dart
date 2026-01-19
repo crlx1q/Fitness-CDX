@@ -31,6 +31,7 @@ class BalanceDetailsScreen extends StatelessWidget {
                 // Main balance card
                 _MainBalanceCard(
                   usableMinutes: provider.usableMinutes,
+                  isLockedByDebt: balance.debtMinutes > 0 && balance.debtCreditRemaining == 0,
                 ).animate().fadeIn().slideY(begin: 0.1),
 
                 const SizedBox(height: 24),
@@ -42,7 +43,33 @@ class BalanceDetailsScreen extends StatelessWidget {
                 _BalanceBreakdownCard(
                   freeBalance: balance.freeBalance,
                   earnedBalance: balance.earnedBalance,
+                  debtMinutes: balance.debtMinutes,
+                  debtCreditRemaining: balance.debtCreditRemaining,
                 ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.1),
+
+                const SizedBox(height: 24),
+
+                _SectionTitle(title: 'Долг'),
+                const SizedBox(height: 12),
+                _DebtCard(
+                  debtMinutes: balance.debtMinutes,
+                  debtCreditRemaining: balance.debtCreditRemaining,
+                  canTakeDebt: provider.canTakeDebt,
+                  onTakeDebt: (minutes) async {
+                    final success = await provider.takeDebtMinutes(minutes);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            success
+                                ? 'Доступно $minutes мин в долг'
+                                : 'Сегодня долг уже был использован',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.1),
 
                 const SizedBox(height: 24),
 
@@ -100,9 +127,11 @@ class _SectionTitle extends StatelessWidget {
 
 class _MainBalanceCard extends StatelessWidget {
   final int usableMinutes;
+  final bool isLockedByDebt;
 
   const _MainBalanceCard({
     required this.usableMinutes,
+    required this.isLockedByDebt,
   });
 
   @override
@@ -134,7 +163,7 @@ class _MainBalanceCard extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.displayLarge?.copyWith(
                 fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
+                color: isLockedByDebt ? AppColors.textSecondary : AppColors.textPrimary,
               ),
             ),
           ),
@@ -172,10 +201,14 @@ class _MainBalanceCard extends StatelessWidget {
 class _BalanceBreakdownCard extends StatelessWidget {
   final int freeBalance;
   final int earnedBalance;
+  final int debtMinutes;
+  final int debtCreditRemaining;
 
   const _BalanceBreakdownCard({
     required this.freeBalance,
     required this.earnedBalance,
+    required this.debtMinutes,
+    required this.debtCreditRemaining,
   });
 
   @override
@@ -188,6 +221,24 @@ class _BalanceBreakdownCard extends StatelessWidget {
       ),
       child: Column(
         children: [
+          if (debtCreditRemaining > 0)
+            _BalanceRow(
+              icon: Icons.schedule,
+              label: 'В долг',
+              value: debtCreditRemaining,
+              color: AppColors.primary,
+            ),
+          if (debtCreditRemaining > 0)
+            const Divider(color: AppColors.surfaceLight, height: 24),
+          if (debtMinutes > 0)
+            _BalanceRow(
+              icon: Icons.receipt_long,
+              label: 'Долг',
+              value: debtMinutes,
+              color: AppColors.textSecondary,
+            ),
+          if (debtMinutes > 0)
+            const Divider(color: AppColors.surfaceLight, height: 24),
           _BalanceRow(
             icon: Icons.card_giftcard,
             label: 'Бесплатно',
@@ -240,13 +291,86 @@ class _BalanceRow extends StatelessWidget {
           ),
         ),
         Text(
-          '$value мин',
+          _formatMinutes(value),
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
             color: color,
           ),
         ),
       ],
+    );
+  }
+}
+
+class _DebtCard extends StatelessWidget {
+  final int debtMinutes;
+  final int debtCreditRemaining;
+  final bool canTakeDebt;
+  final ValueChanged<int> onTakeDebt;
+
+  const _DebtCard({
+    required this.debtMinutes,
+    required this.debtCreditRemaining,
+    required this.canTakeDebt,
+    required this.onTakeDebt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasDebt = debtMinutes > 0;
+    final hasCredit = debtCreditRemaining > 0;
+    final options = AppConstants.debtMinuteOptions;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.surfaceLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.receipt_long, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Text(
+                'Лимит долга',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            hasDebt
+                ? 'Нужно отработать ${_formatMinutes(debtMinutes)}'
+                : hasCredit
+                    ? 'Сегодня доступно ${_formatMinutes(debtCreditRemaining)} в долг'
+                    : 'Можно взять до ${_formatMinutes(AppConstants.maxDailyDebtMinutes)} в долг один раз в день',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+          ),
+          const SizedBox(height: 12),
+          if (!hasDebt && !hasCredit)
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: options.map((minutes) {
+                  return OutlinedButton(
+                    onPressed: canTakeDebt ? () => onTakeDebt(minutes) : null,
+                    child: Text('${_formatMinutes(minutes)}'),
+                  );
+                }).toList(),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -463,6 +587,11 @@ class _HowItWorksCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _HowItWorksItem(
+            icon: Icons.receipt_long,
+            text: 'Долг погашается в первую очередь и блокирует бесплатные минуты',
+          ),
+          const SizedBox(height: 12),
+          _HowItWorksItem(
             icon: Icons.local_fire_department,
             text: 'Стрик увеличивает награды за тренировки до x2',
           ),
@@ -494,4 +623,17 @@ class _HowItWorksItem extends StatelessWidget {
       ],
     );
   }
+}
+
+String _formatMinutes(int minutes) {
+  if (minutes <= 0) return '0м';
+  final hours = minutes ~/ 60;
+  final mins = minutes % 60;
+  if (hours > 0 && mins > 0) {
+    return '${hours}ч ${mins}м';
+  }
+  if (hours > 0) {
+    return '${hours}ч';
+  }
+  return '${mins}м';
 }
