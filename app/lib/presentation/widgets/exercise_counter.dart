@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fitness_coach/core/theme/app_theme.dart';
+import 'package:fitness_coach/core/utils/time_formatter.dart';
 import 'package:fitness_coach/domain/models/exercise.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -130,7 +131,7 @@ class ExerciseCounter extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '+$earnedMinutes мин',
+                    '+${formatMinutes(earnedMinutes)}',
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: AppColors.success,
                       fontWeight: FontWeight.bold,

@@ -150,19 +150,10 @@ class _StatsScreenState extends State<StatsScreen> {
                   ),
                 ),
               ),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final dayStats = dailyStats[index];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-                      child: _DailyStatsTile(
-                        stats: dayStats,
-                        onTap: () => _showDailyDetails(context, dayStats),
-                      ),
-                    );
-                  },
-                  childCount: dailyStats.length,
+              SliverToBoxAdapter(
+                child: _DailyPager(
+                  stats: dailyStats.reversed.toList(),
+                  onTap: (dayStats) => _showDailyDetails(context, dayStats),
                 ),
               ),
 
@@ -204,18 +195,11 @@ class _StatsScreenState extends State<StatsScreen> {
     final days = _selectedPeriod == 0 ? 7 : 30;
     final start = DateTime(now.year, now.month, now.day - days + 1);
     final end = DateTime(now.year, now.month, now.day + 1);
-    final stats = provider.getDailyStats(start, end);
-    final dataMap = <String, DailyStats>{};
-    for (final stat in stats) {
-      dataMap[stat.dateKey] = stat;
-    }
-    final full = <DailyStats>[];
-    for (int i = 0; i < days; i++) {
-      final date = DateTime(now.year, now.month, now.day - days + 1 + i);
-      final key = DailyStats.dateToKey(date);
-      full.add(dataMap[key] ?? DailyStats(dateKey: key));
-    }
-    return full;
+    final stats = provider.getDailyStats(start, end)
+        .where((stat) => _hasRecordedActivity(stat))
+        .toList();
+    stats.sort((a, b) => a.date.compareTo(b.date));
+    return stats;
   }
 
   Widget _buildChart(List<DailyStats> dailyStats) {
@@ -228,22 +212,9 @@ class _StatsScreenState extends State<StatsScreen> {
       );
     }
 
-    final days = _selectedPeriod == 0 ? 7 : 30;
-    final now = DateTime.now();
-    
-    // Create data map for quick lookup
-    final dataMap = <String, int>{};
-    for (final stat in dailyStats) {
-      dataMap[stat.dateKey] = stat.earnedMinutes;
-    }
-
-    // Generate bars for each day
     final bars = <BarChartGroupData>[];
-    for (int i = 0; i < days; i++) {
-      final date = DateTime(now.year, now.month, now.day - days + 1 + i);
-      final key = DailyStats.dateToKey(date);
-      final value = dataMap[key] ?? 0;
-      
+    for (int i = 0; i < dailyStats.length; i++) {
+      final value = dailyStats[i].earnedMinutes;
       bars.add(
         BarChartGroupData(
           x: i,
@@ -251,7 +222,7 @@ class _StatsScreenState extends State<StatsScreen> {
             BarChartRodData(
               toY: value.toDouble(),
               color: AppColors.primary,
-              width: days == 7 ? 24 : 8,
+              width: dailyStats.length <= 7 ? 24 : 10,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
             ),
           ],
@@ -271,9 +242,9 @@ class _StatsScreenState extends State<StatsScreen> {
           touchTooltipData: BarTouchTooltipData(
             getTooltipColor: (_) => AppColors.surfaceLight,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
-              final date = DateTime(now.year, now.month, now.day - days + 1 + group.x);
+              final date = dailyStats[group.x].date;
               return BarTooltipItem(
-                '${DateFormat('d MMM', 'ru').format(date)}\n${rod.toY.toInt()} мин',
+                '${DateFormat('d MMM', 'ru').format(date)}\n${_formatMinutesValue(rod.toY.toInt())}',
                 const TextStyle(color: AppColors.textPrimary, fontSize: 12),
               );
             },
@@ -285,8 +256,11 @@ class _StatsScreenState extends State<StatsScreen> {
             sideTitles: SideTitles(
               showTitles: true,
               getTitlesWidget: (value, meta) {
-                if (days == 7) {
-                  final date = DateTime(now.year, now.month, now.day - days + 1 + value.toInt());
+                if (value.toInt() >= dailyStats.length) {
+                  return const SizedBox.shrink();
+                }
+                if (dailyStats.length <= 7) {
+                  final date = dailyStats[value.toInt()].date;
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
@@ -295,9 +269,9 @@ class _StatsScreenState extends State<StatsScreen> {
                     ),
                   );
                 }
-                // Show every 5th day for month view
+                // Show every 5th recorded day for month view
                 if (value.toInt() % 5 == 0) {
-                  final date = DateTime(now.year, now.month, now.day - days + 1 + value.toInt());
+                  final date = dailyStats[value.toInt()].date;
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
@@ -415,6 +389,56 @@ class _StatsScreenState extends State<StatsScreen> {
   }
 }
 
+class _DailyPager extends StatelessWidget {
+  final List<DailyStats> stats;
+  final ValueChanged<DailyStats> onTap;
+
+  const _DailyPager({
+    required this.stats,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (stats.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            'Нет записанных дней за период',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 128,
+      child: PageView.builder(
+        controller: PageController(viewportFraction: 0.85),
+        itemCount: stats.length,
+        itemBuilder: (context, index) {
+          final dayStats = stats[index];
+          return Padding(
+            padding: const EdgeInsets.only(left: 20, right: 12),
+            child: _DailyStatsTile(
+              stats: dayStats,
+              onTap: () => onTap(dayStats),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _DailyStatsTile extends StatelessWidget {
   final DailyStats stats;
   final VoidCallback onTap;
@@ -426,7 +450,6 @@ class _DailyStatsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasActivity = stats.earnedMinutes > 0 || stats.spentMinutes > 0 || stats.workoutCount > 0;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -436,10 +459,11 @@ class _DailyStatsTile extends StatelessWidget {
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: hasActivity ? AppColors.primary.withValues(alpha: 0.3) : AppColors.surfaceLight,
+            color: AppColors.primary.withValues(alpha: 0.2),
           ),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               DateFormat('d MMM', 'ru').format(stats.date),
@@ -447,19 +471,61 @@ class _DailyStatsTile extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
             ),
-            const Spacer(),
-            Text(
-              _formatMinutesValue(stats.earnedMinutes),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: hasActivity ? AppColors.primary : AppColors.textHint,
-                    fontWeight: FontWeight.w600,
-                  ),
+            const SizedBox(height: 12),
+            _DailyStatChip(
+              label: 'Заработано',
+              value: _formatMinutesValue(stats.earnedMinutes),
+              color: AppColors.success,
             ),
-            const SizedBox(width: 12),
-            Icon(Icons.chevron_right, color: AppColors.textSecondary, size: 20),
+            const SizedBox(height: 8),
+            _DailyStatChip(
+              label: 'Потрачено',
+              value: _formatMinutesValue(stats.spentMinutes),
+              color: AppColors.error,
+            ),
+            const Spacer(),
+            Align(
+              alignment: Alignment.bottomRight,
+              child: Icon(Icons.chevron_right, color: AppColors.textSecondary, size: 20),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DailyStatChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _DailyStatChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+          ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+      ],
     );
   }
 }
@@ -500,12 +566,17 @@ class _DailyStatLine extends StatelessWidget {
 }
 
 String _formatMinutesValue(int minutes) {
+  if (minutes <= 0) return '0м';
   if (minutes >= 60) {
     final hours = minutes ~/ 60;
     final mins = minutes % 60;
     return mins > 0 ? '${hours}ч ${mins}м' : '${hours}ч';
   }
   return '${minutes}м';
+}
+
+bool _hasRecordedActivity(DailyStats stats) {
+  return stats.earnedMinutes > 0 || stats.spentMinutes > 0 || stats.workoutCount > 0;
 }
 
 class _SummaryCard extends StatelessWidget {

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:fitness_coach/core/theme/app_theme.dart';
+import 'package:fitness_coach/core/utils/time_formatter.dart';
 import 'package:fitness_coach/domain/models/exercise.dart';
 import 'package:fitness_coach/domain/services/pose_detection_service.dart';
 import 'package:fitness_coach/presentation/providers/app_provider.dart';
@@ -549,7 +550,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
         title: const Text('Завершить тренировку?'),
         content: Text(
           'Вы выполнили ${provider.currentCount} ${widget.exerciseType.displayName.toLowerCase()}.\n'
-          'Заработано: +${provider.potentialReward} минут',
+          'Заработано: +${formatMinutes(provider.potentialReward)}',
         ),
         actions: [
           TextButton(
@@ -666,7 +667,7 @@ class _SuccessDialog extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    '+${session.earnedMinutes} мин',
+                    '+${formatMinutes(session.earnedMinutes)}',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       color: AppColors.success,
                       fontWeight: FontWeight.bold,

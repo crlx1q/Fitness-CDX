@@ -55,14 +55,14 @@ class BalanceDetailsScreen extends StatelessWidget {
                   debtMinutes: balance.debtMinutes,
                   debtCreditRemaining: balance.debtCreditRemaining,
                   canTakeDebt: provider.canTakeDebt,
-                  onTakeDebt: () async {
-                    final success = await provider.takeDebtMinutes(AppConstants.maxDailyDebtMinutes);
+                  onTakeDebt: (minutes) async {
+                    final success = await provider.takeDebtMinutes(minutes);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
                             success
-                                ? 'Доступно ${AppConstants.maxDailyDebtMinutes} мин в долг'
+                                ? 'Доступно ${_formatMinutes(minutes)} в долг'
                                 : 'Сегодня долг уже был использован',
                           ),
                         ),
@@ -188,14 +188,7 @@ class _MainBalanceCard extends StatelessWidget {
     );
   }
 
-  String _formatTime(int minutes) {
-    final hours = minutes ~/ 60;
-    final mins = minutes % 60;
-    if (hours > 0) {
-      return '${hours}ч ${mins}м';
-    }
-    return '${mins}м';
-  }
+  String _formatTime(int minutes) => _formatMinutes(minutes);
 }
 
 class _BalanceBreakdownCard extends StatelessWidget {
@@ -290,23 +283,23 @@ class _BalanceRow extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
-        Text(
-          '$value мин',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: color,
+          Text(
+            _formatMinutes(value),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
-        ),
       ],
     );
   }
 }
 
-class _DebtCard extends StatelessWidget {
+class _DebtCard extends StatefulWidget {
   final int debtMinutes;
   final int debtCreditRemaining;
   final bool canTakeDebt;
-  final VoidCallback onTakeDebt;
+  final ValueChanged<int> onTakeDebt;
 
   const _DebtCard({
     required this.debtMinutes,
@@ -316,9 +309,27 @@ class _DebtCard extends StatelessWidget {
   });
 
   @override
+  State<_DebtCard> createState() => _DebtCardState();
+}
+
+class _DebtCardState extends State<_DebtCard> {
+  late int _selectedMinutes;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedMinutes = _debtOptions.first;
+  }
+
+  List<int> get _debtOptions {
+    const options = [15, 30, 60, 120];
+    return options.where((value) => value <= AppConstants.maxDailyDebtMinutes).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final hasDebt = debtMinutes > 0;
-    final hasCredit = debtCreditRemaining > 0;
+    final hasDebt = widget.debtMinutes > 0;
+    final hasCredit = widget.debtCreditRemaining > 0;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -345,23 +356,43 @@ class _DebtCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             hasDebt
-                ? 'Нужно отработать $debtMinutes мин'
+                ? 'Нужно отработать ${_formatMinutes(widget.debtMinutes)}'
                 : hasCredit
-                    ? 'Сегодня доступно $debtCreditRemaining мин в долг'
-                    : 'Можно взять до ${AppConstants.maxDailyDebtMinutes} мин в долг один раз в день',
+                    ? 'Сегодня доступно ${_formatMinutes(widget.debtCreditRemaining)} в долг'
+                    : 'Можно взять до ${_formatMinutes(AppConstants.maxDailyDebtMinutes)} в долг один раз в день',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
           ),
           const SizedBox(height: 12),
-          if (!hasDebt && !hasCredit)
+          if (!hasDebt && !hasCredit) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _debtOptions.map((minutes) {
+                final isSelected = _selectedMinutes == minutes;
+                return ChoiceChip(
+                  label: Text(_formatMinutes(minutes)),
+                  selected: isSelected,
+                  onSelected: widget.canTakeDebt
+                      ? (value) {
+                          if (value) {
+                            setState(() => _selectedMinutes = minutes);
+                          }
+                        }
+                      : null,
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: canTakeDebt ? onTakeDebt : null,
+                onPressed: widget.canTakeDebt ? () => widget.onTakeDebt(_selectedMinutes) : null,
                 child: const Text('Взять в долг'),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -543,7 +574,7 @@ class _DailyAllowanceCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'Каждый день в 00:01 вы получаете $freeAllowance мин бесплатно',
+                  'Каждый день в 00:01 вы получаете ${_formatMinutes(freeAllowance)} бесплатно',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -616,4 +647,17 @@ class _HowItWorksItem extends StatelessWidget {
       ],
     );
   }
+}
+
+String _formatMinutes(int minutes) {
+  if (minutes <= 0) return '0м';
+  final hours = minutes ~/ 60;
+  final mins = minutes % 60;
+  if (hours > 0 && mins > 0) {
+    return '${hours}ч ${mins}м';
+  }
+  if (hours > 0) {
+    return '${hours}ч';
+  }
+  return '${mins}м';
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fitness_coach/core/theme/app_theme.dart';
+import 'package:fitness_coach/core/utils/time_formatter.dart';
 import 'package:fitness_coach/domain/models/exercise.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -139,7 +140,7 @@ class ExerciseCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '+$rewardMinutes мин',
+                    '+${formatMinutes(rewardMinutes)}',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       color: AppColors.success,
                       fontWeight: FontWeight.bold,
@@ -172,7 +173,7 @@ class ExerciseCard extends StatelessWidget {
         final seconds = requirement;
         if (seconds >= 60) {
           final minutes = seconds ~/ 60;
-          return '$minutes мин свободной активности';
+          return '${formatMinutes(minutes)} свободной активности';
         }
         return '$seconds сек свободной активности';
     }

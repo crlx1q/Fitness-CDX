@@ -116,22 +116,39 @@ class TimeBalanceCard extends StatelessWidget {
                 debtMinutes > 0 ||
                 debtCreditRemaining > 0) ...[
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
                 children: [
-                  if (debtCreditRemaining > 0) ...[
-                    _buildMiniStat(context, '⏳', '$debtCreditRemaining мин', 'в долг'),
-                    const SizedBox(width: 16),
-                  ],
-                  if (debtMinutes > 0) ...[
-                    _buildMiniStat(context, '🧾', '$debtMinutes мин', 'долг', dimmed: true),
-                    const SizedBox(width: 16),
-                  ],
-                  if (freeBalance > 0) ...[
-                    _buildMiniStat(context, '🎁', '$freeBalance мин', 'бесплатно'),
-                    const SizedBox(width: 16),
-                  ],
+                  if (debtCreditRemaining > 0)
+                    _buildMiniStat(
+                      context,
+                      '⏳',
+                      _formatTime(debtCreditRemaining),
+                      'в долг',
+                    ),
+                  if (debtMinutes > 0)
+                    _buildMiniStat(
+                      context,
+                      '🧾',
+                      _formatTime(debtMinutes),
+                      'долг',
+                      dimmed: true,
+                    ),
+                  if (freeBalance > 0)
+                    _buildMiniStat(
+                      context,
+                      '🎁',
+                      _formatTime(freeBalance),
+                      'бесплатно',
+                    ),
                   if (earnedBalance > 0)
-                    _buildMiniStat(context, '💪', '$earnedBalance мин', 'заработано'),
+                    _buildMiniStat(
+                      context,
+                      '💪',
+                      _formatTime(earnedBalance),
+                      'заработано',
+                    ),
                 ],
               ),
             ],
@@ -147,7 +164,7 @@ class TimeBalanceCard extends StatelessWidget {
                     _buildTodayStat(
                       context,
                       icon: Icons.add_circle_outline,
-                      value: '+$todayEarned мин',
+                      value: '+${_formatTime(todayEarned)}',
                       color: AppColors.success,
                       label: 'Заработано',
                     ),
@@ -157,7 +174,7 @@ class TimeBalanceCard extends StatelessWidget {
                     _buildTodayStat(
                       context,
                       icon: Icons.remove_circle_outline,
-                      value: '-$todaySpent мин',
+                      value: '-${_formatTime(todaySpent)}',
                       color: AppColors.error,
                       label: 'Потрачено',
                     ),

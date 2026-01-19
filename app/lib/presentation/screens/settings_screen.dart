@@ -254,6 +254,27 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                 ),
               ),
 
+              SliverToBoxAdapter(
+                child: _SectionHeader(title: 'Администрирование'),
+              ),
+
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: ListTile(
+                      leading: const Icon(Icons.admin_panel_settings_outlined),
+                      title: const Text('Остановить блокировку'),
+                      onTap: () => _showAdminUnlockDialog(context, provider),
+                    ),
+                  ).animate().fadeIn(),
+                ),
+              ),
+
               // Privacy section
               SliverToBoxAdapter(
                 child: _SectionHeader(title: 'Приватность'),
@@ -379,10 +400,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                 const SizedBox(height: 16),
                 TextField(
                   controller: controller,
-                  decoration: const InputDecoration(
-                    labelText: 'Подтверждение',
-                    border: OutlineInputBorder(),
-                  ),
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
                   onChanged: (_) => setState(() {}),
                 ),
               ],
@@ -411,6 +429,51 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                 },
                 style: TextButton.styleFrom(foregroundColor: AppColors.error),
                 child: const Text('Сбросить'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showAdminUnlockDialog(BuildContext context, AppProvider provider) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('Подтверждение'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+              onChanged: (_) => setState(() {}),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final value = controller.text.trim();
+                  if (value != 'Апельсин') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Неверное ключевое слово')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context);
+                  await provider.stopBlockingService();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Блокировка остановлена')),
+                    );
+                  }
+                },
+                child: const Text('Подтвердить'),
               ),
             ],
           );

@@ -54,7 +54,7 @@ class AppConstants {
   static const int lowBalanceThreshold = 5;
 
   // Debt system
-  static const int maxDailyDebtMinutes = 60;
+  static const int maxDailyDebtMinutes = 120;
   static const int dailyStatsRetentionDays = 30;
 }
 
