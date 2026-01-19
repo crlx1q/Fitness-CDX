@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FitLock</string>
+    <string name="accessibility_service_description">FitLock использует эту службу для блокировки выбранных приложений, когда у вас закончилось заработанное экранное время. Тренируйтесь, чтобы разблокировать!</string>
+</resources>

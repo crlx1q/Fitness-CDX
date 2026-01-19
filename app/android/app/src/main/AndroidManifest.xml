@@ -1,0 +1,163 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <!-- Internet for ML Kit model download -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    
+    <!-- Camera permission for pose detection -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    
+    <!-- Usage stats permission for app tracking -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" 
+        tools:ignore="ProtectedPermissions" 
+        xmlns:tools="http://schemas.android.com/tools" />
+    
+    <!-- Query installed packages -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission"
+        xmlns:tools="http://schemas.android.com/tools" />
+    
+    <!-- Foreground service for blocking -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    
+    <!-- Notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    
+    <application
+        android:label="FitLock"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:isGame="false"
+        android:appCategory="productivity">
+        
+        <!-- Main Flutter Activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        
+        <!-- Blocked App Screen Activity -->
+        <activity
+            android:name=".BlockedActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MaterialComponents.NoActionBar"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true" />
+        
+        <!-- Accessibility Service for App Blocking -->
+        <service
+            android:name=".AppBlockerService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+        
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+        
+        <!-- Notification boot receiver -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
+            
+        <!-- ML Kit Pose Detection - enable model download and updates -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="pose" />
+        <meta-data
+            android:name="com.google.android.gms.vision.DEPENDENCIES"
+            android:value="barcode,face,ocr" />
+    </application>
+    
+    <queries>
+        <!-- Query all launchable apps -->
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+        
+        <!-- Popular apps that may be blocked - explicit package queries -->
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.zhiliaoapp.musically" /> <!-- TikTok -->
+        <package android:name="com.ss.android.ugc.trill" /> <!-- TikTok alternate -->
+        <package android:name="com.instagram.android" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.facebook.orca" /> <!-- Messenger -->
+        <package android:name="com.twitter.android" />
+        <package android:name="com.snapchat.android" />
+        <package android:name="com.whatsapp" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="com.vkontakte.android" />
+        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.reddit.frontpage" />
+        <package android:name="com.discord" />
+        <package android:name="tv.twitch.android.app" />
+        <package android:name="com.pinterest" />
+        <package android:name="com.linkedin.android" />
+        <package android:name="com.amazon.avod.thirdpartyclient" />
+        <package android:name="ru.ok.android" /> <!-- Odnoklassniki -->
+        <package android:name="com.google.android.gm" /> <!-- Gmail -->
+        <package android:name="com.android.chrome" />
+        <package android:name="org.mozilla.firefox" />
+        <package android:name="com.microsoft.emmx" /> <!-- Edge -->
+        <package android:name="com.yandex.browser" />
+        <package android:name="ru.yandex.searchplugin" />
+        <package android:name="com.UCMobile.intl" /> <!-- UC Browser -->
+        <package android:name="com.opera.browser" />
+        <package android:name="com.opera.mini.native" />
+        <package android:name="com.brave.browser" />
+        <package android:name="com.duckduckgo.mobile.android" />
+        <package android:name="com.supercell.clashofclans" />
+        <package android:name="com.supercell.clashroyale" />
+        <package android:name="com.supercell.brawlstars" />
+        <package android:name="com.king.candycrushsaga" />
+        <package android:name="com.kiloo.subwaysurf" />
+        <package android:name="com.imangi.templerun2" />
+        <package android:name="com.mojang.minecraftpe" />
+        <package android:name="com.activision.callofduty.shooter" />
+        <package android:name="com.pubg.imobile" />
+        <package android:name="com.tencent.ig" /> <!-- PUBG Mobile -->
+        <package android:name="com.garena.game.freefire" />
+        <package android:name="com.dts.freefireth" />
+        <package android:name="com.mobile.legends" />
+        <package android:name="com.riotgames.league.wildrift" />
+        <package android:name="com.miHoYo.GenshinImpact" />
+        <package android:name="com.YoStarEN.Arknights" />
+        <package android:name="com.plarium.raidlegends" />
+        <package android:name="com.ea.gp.fifamobile" />
+        <package android:name="com.gameloft.android.ANMP.GloftA9HM" /> <!-- Asphalt 9 -->
+    </queries>
+</manifest>

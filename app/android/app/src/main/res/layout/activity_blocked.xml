@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout 
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D1A"
+    android:padding="32dp">
+
+    <TextView
+        android:id="@+id/lockIcon"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:background="@drawable/circle_error_bg"
+        android:gravity="center"
+        android:text="🔒"
+        android:textSize="48sp"
+        app:layout_constraintBottom_toTopOf="@+id/titleText"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_chainStyle="packed" />
+
+    <TextView
+        android:id="@+id/titleText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:text="Приложение заблокировано"
+        android:textColor="#FFFFFF"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/lockIcon" />
+
+    <TextView
+        android:id="@+id/descText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="center"
+        android:text="У вас закончилось экранное время.\nВыполните упражнения, чтобы разблокировать."
+        android:textColor="#B3FFFFFF"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/titleText" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/trainButton"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="48dp"
+        android:backgroundTint="#6C63FF"
+        android:text="💪 Начать тренировку"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        app:cornerRadius="16dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/descText" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/backButton"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="16dp"
+        android:text="Вернуться на главный экран"
+        android:textColor="#B3FFFFFF"
+        android:textSize="16sp"
+        app:cornerRadius="16dp"
+        app:strokeColor="#4DFFFFFF"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/trainButton" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
