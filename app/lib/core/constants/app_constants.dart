@@ -55,7 +55,7 @@ class AppConstants {
 
   // Debt system
   static const int maxDailyDebtMinutes = 120;
-  static const int dailyStatsRetentionDays = 30;
+  static const int dailyStatsRetentionDays = 14;
 }
 
 /// Difficulty presets

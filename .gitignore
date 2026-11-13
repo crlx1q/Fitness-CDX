@@ -1,0 +1,9 @@
+# Archives
+*.rar
+*.zip
+
+# Gradle & Local properties
+.gradle/
+**/android/.gradle/
+**/android/local.properties
+**/local.properties

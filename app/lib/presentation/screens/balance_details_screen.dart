@@ -31,7 +31,10 @@ class BalanceDetailsScreen extends StatelessWidget {
                 // Main balance card
                 _MainBalanceCard(
                   usableMinutes: provider.usableMinutes,
-                  isLockedByDebt: balance.debtMinutes > 0 && balance.debtCreditRemaining == 0,
+                  isLockedByDebt: balance.debtMinutes > 0 &&
+                      balance.debtCreditRemaining == 0 &&
+                      balance.freeBalance == 0 &&
+                      balance.earnedBalance == 0,
                 ).animate().fadeIn().slideY(begin: 0.1),
 
                 const SizedBox(height: 24),

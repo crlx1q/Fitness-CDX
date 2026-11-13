@@ -36,11 +36,8 @@ class DailyBalance extends HiveObject {
   /// Total available minutes from balance (free + earned)
   int get balanceMinutes => freeBalance + earnedBalance;
 
-  /// Total usable minutes
+  /// Total usable minutes = free + earned + debt credit (all available time)
   int get usableMinutes {
-    if (debtMinutes > 0) {
-      return debtCreditRemaining;
-    }
     return freeBalance + earnedBalance + debtCreditRemaining;
   }
 
@@ -48,9 +45,9 @@ class DailyBalance extends HiveObject {
   bool get hasDebtCredit => debtCreditRemaining > 0;
 
   /// Check if user can use balance (has usable time)
-  bool get canUseTime => usableMinutes > 0 && (!hasDebt || hasDebtCredit);
+  bool get canUseTime => usableMinutes > 0;
 
-  /// Consume time - uses debt credits first, then free balance, then earned
+  /// Consume time - uses FREE first, then EARNED, then DEBT
   /// Returns actual minutes consumed (may be less if not enough available)
   int consumeTime(int minutes) {
     if (minutes <= 0) return 0;
@@ -58,20 +55,6 @@ class DailyBalance extends HiveObject {
     int remaining = minutes;
     int consumed = 0;
 
-    // 0. First consume from debt credits (borrowed time)
-    if (debtCreditRemaining > 0 && remaining > 0) {
-      final fromDebt = remaining.clamp(0, debtCreditRemaining);
-      debtCreditRemaining -= fromDebt;
-      remaining -= fromDebt;
-      consumed += fromDebt;
-      debtMinutes += fromDebt;
-    }
-
-    // If debt exists, stop further spending until repaid
-    if (debtMinutes > 0) {
-      return consumed;
-    }
-    
     // 1. First consume from free balance
     if (freeBalance > 0 && remaining > 0) {
       final fromFree = remaining.clamp(0, freeBalance);
@@ -86,6 +69,16 @@ class DailyBalance extends HiveObject {
       earnedBalance -= fromEarned;
       remaining -= fromEarned;
       consumed += fromEarned;
+    }
+    
+    // 3. Finally consume from debt credits (borrowed time)
+    // This increases debtMinutes which must be repaid
+    if (debtCreditRemaining > 0 && remaining > 0) {
+      final fromDebt = remaining.clamp(0, debtCreditRemaining);
+      debtCreditRemaining -= fromDebt;
+      remaining -= fromDebt;
+      consumed += fromDebt;
+      debtMinutes += fromDebt; // Track how much debt was actually used
     }
     
     return consumed;

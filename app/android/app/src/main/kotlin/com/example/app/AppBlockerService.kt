@@ -2,27 +2,55 @@ package com.fitlock.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.app.NotificationCompat
 
 /**
  * Accessibility Service for blocking apps when no time available
- * and tracking time spent in blocked apps
+ * and tracking time spent in blocked apps.
+ * 
+ * REAL-TIME TRACKING: This service now tracks time in real-time when user is in
+ * blocked apps, instead of relying solely on UsageStats which has delays.
  */
 class AppBlockerService : AccessibilityService() {
     
+    companion object {
+        private const val NOTIFICATION_CHANNEL_ID = "fitlock_blocking"
+        private const val LOW_BALANCE_NOTIFICATION_ID = 1001
+        private const val ZERO_BALANCE_NOTIFICATION_ID = 1002
+        private const val PREFS_NAME = "fitlock_prefs"
+        private const val LOW_BALANCE_THRESHOLD_MINUTES = 5
+        
+        // Real-time tracking interval (every 1 second)
+        private const val REALTIME_CHECK_INTERVAL_MS = 1_000L
+        private const val SECONDS_PER_MINUTE = 60
+    }
+    
     private var currentBlockedApp: String? = null
-    private var timeTrackingStarted: Long = 0
+    private var realtimeTrackingStartMs: Long = 0
+    private var realtimeSecondsAccumulated: Int = 0
     private val handler = Handler(Looper.getMainLooper())
-    private var timeDeductionRunnable: Runnable? = null
-    private var usageCheckRunnable: Runnable? = null
+    private var realtimeTrackingRunnable: Runnable? = null
+    private var backgroundCheckRunnable: Runnable? = null
+    private var lastNotifiedLowBalance: Int = -1
+    private var hasNotifiedZeroBalance: Boolean = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        
+        // Create notification channel
+        createNotificationChannel()
         
         // Load persisted data so service works even when Flutter app is closed
         MainActivity.loadFromPrefs(applicationContext)
@@ -35,48 +63,76 @@ class AppBlockerService : AccessibilityService() {
         }
         serviceInfo = info
         
-        // Start background usage check for when Flutter app is closed
-        startUsageCheck()
+        // Start background check loop
+        startBackgroundCheck()
     }
     
-    private fun startUsageCheck() {
-        usageCheckRunnable = object : Runnable {
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "Блокировка приложений",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Уведомления о блокировке приложений и низком балансе"
+                enableVibration(true)
+            }
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(channel)
+        }
+    }
+    
+    /**
+     * Background check loop - runs every 3 seconds to catch when user is in blocked app
+     * and to enforce blocking even when accessibility events are missed
+     */
+    private fun startBackgroundCheck() {
+        backgroundCheckRunnable = object : Runnable {
             override fun run() {
                 // Reload from prefs in case Flutter updated it
                 MainActivity.loadFromPrefs(applicationContext)
                 
-                // Check and deduct time spent in blocked apps
-                checkAndDeductTime()
-                
                 val currentApp = getCurrentForegroundApp()
-                val isBlockedForeground = currentApp != null && MainActivity.blockedPackages.contains(currentApp)
-                var nextDelayMs = 15_000L
+                val isBlockedForeground = currentApp != null && 
+                    MainActivity.blockedPackages.contains(currentApp)
+                
+                // If we're in a blocked app but not tracking, start tracking
+                if (isBlockedForeground && currentBlockedApp != currentApp) {
+                    stopRealtimeTracking()
+                    startRealtimeTracking(currentApp!!)
+                }
 
-                // If no time left and a blocked app is in foreground, block it and keep fast checks
-                if (MainActivity.availableMinutes <= 0 && isBlockedForeground) {
-                    val intent = Intent(this@AppBlockerService, BlockedActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        putExtra("blocked_package", currentApp)
-                    }
-                    startActivity(intent)
-                    nextDelayMs = 5_000L
-                } else if (isBlockedForeground) {
-                    // When user is inside blocked app, check faster
-                    nextDelayMs = 5_000L
+                // If we left blocked app, stop tracking to avoid over-counting
+                if (!isBlockedForeground && currentBlockedApp != null) {
+                    stopRealtimeTracking()
                 }
                 
-                handler.postDelayed(this, nextDelayMs)
+                // If no time left and a blocked app is in foreground, BLOCK IT
+                if (MainActivity.availableMinutes <= 0 && isBlockedForeground) {
+                    showBlockedActivity(currentApp!!)
+                    checkLowBalanceNotification()
+                    stopRealtimeTracking()
+                }
+                
+                // Check for low balance notification
+                checkLowBalanceNotification()
+                
+                // Continue checking every 3 seconds
+                handler.postDelayed(this, 3_000)
             }
         }
-        // Start first check after 2 seconds
-        handler.postDelayed(usageCheckRunnable!!, 2_000)
+        handler.postDelayed(backgroundCheckRunnable!!, 1_000)
     }
     
     private fun getCurrentForegroundApp(): String? {
+        val rootPackage = rootInActiveWindow?.packageName?.toString()
+        if (!rootPackage.isNullOrBlank()) {
+            return rootPackage
+        }
         try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val endTime = System.currentTimeMillis()
-            val startTime = endTime - 10_000 // Last 10 seconds
+            val startTime = endTime - 5_000 // Last 5 seconds for faster detection
             
             val usageEvents = usm.queryEvents(startTime, endTime)
             var lastApp: String? = null
@@ -85,10 +141,14 @@ class AppBlockerService : AccessibilityService() {
             val event = android.app.usage.UsageEvents.Event()
             while (usageEvents.hasNextEvent()) {
                 usageEvents.getNextEvent(event)
-                if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
+                if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED ||
+                    event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED) {
                     if (event.timeStamp > lastTime) {
                         lastTime = event.timeStamp
-                        lastApp = event.packageName
+                        // Only set lastApp for RESUMED events
+                        if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
+                            lastApp = event.packageName
+                        }
                     }
                 }
             }
@@ -98,73 +158,156 @@ class AppBlockerService : AccessibilityService() {
         }
     }
     
-    private fun checkAndDeductTime() {
-        try {
-            val prefs = applicationContext.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
-            
-            // Check for day change - reset last_blocked_usage at midnight
-            val lastCheckedDay = prefs.getInt("last_checked_day", -1)
-            val currentDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
-            
-            if (lastCheckedDay != currentDay) {
-                // New day - reset usage tracking
-                prefs.edit()
-                    .putLong("last_blocked_usage", 0L)
-                    .putInt("last_checked_day", currentDay)
-                    .apply()
-            }
-            
-            val currentUsage = getBlockedAppsUsageMinutes()
-            val hasBaseline = prefs.getBoolean("has_usage_baseline", false)
-            if (!hasBaseline) {
-                prefs.edit()
-                    .putLong("last_blocked_usage", currentUsage)
-                    .putBoolean("has_usage_baseline", true)
-                    .apply()
-                return
-            }
-
-            val lastCheckedUsage = prefs.getLong("last_blocked_usage", 0L)
-            val newUsage = (currentUsage - lastCheckedUsage).coerceAtLeast(0L).toInt()
-            
-            if (newUsage > 0 && MainActivity.availableMinutes > 0) {
-                val toDeduct = minOf(newUsage, MainActivity.availableMinutes)
-                MainActivity.availableMinutes -= toDeduct
-                prefs.edit().putLong("last_blocked_usage", currentUsage).apply()
+    /**
+     * REAL-TIME time tracking - deducts 1 minute for every 60 seconds spent in blocked apps.
+     * This is much more accurate than UsageStats which can have delays of several minutes.
+     */
+    private fun startRealtimeTracking(packageName: String) {
+        currentBlockedApp = packageName
+        realtimeTrackingStartMs = SystemClock.elapsedRealtime()
+        realtimeSecondsAccumulated = 0
+        
+        // Check every second and deduct time in real-time
+        realtimeTrackingRunnable = object : Runnable {
+            override fun run() {
+                if (currentBlockedApp == null) return
                 
-                // Notify Flutter about time change
-                MainActivity.notifyTimeChanged()
-            } else if (currentUsage > lastCheckedUsage) {
-                prefs.edit().putLong("last_blocked_usage", currentUsage).apply()
+                // Reload from prefs to get latest balance
+                MainActivity.loadFromPrefs(applicationContext)
+                
+                // Calculate elapsed seconds since last check
+                val now = SystemClock.elapsedRealtime()
+                val elapsedMs = now - realtimeTrackingStartMs
+                val elapsedSeconds = (elapsedMs / 1000).toInt()
+                
+                // Accumulate seconds
+                realtimeSecondsAccumulated = elapsedSeconds
+                
+                // Deduct 1 minute for every 60 accumulated seconds
+                val minutesToDeduct = realtimeSecondsAccumulated / SECONDS_PER_MINUTE
+                
+                if (minutesToDeduct > 0 && MainActivity.availableMinutes > 0) {
+                    val actualDeduct = minOf(minutesToDeduct, MainActivity.availableMinutes)
+                    MainActivity.availableMinutes -= actualDeduct
+                    
+                    // Reset tracking start to now, keeping remainder seconds
+                    realtimeSecondsAccumulated %= SECONDS_PER_MINUTE
+                    realtimeTrackingStartMs = now - (realtimeSecondsAccumulated * 1000L)
+                    
+                    // Save to prefs for persistence
+                    saveAvailableMinutesToPrefs()
+                    
+                    // Notify Flutter about time change
+                    MainActivity.notifyTimeChanged()
+                    
+                    // Check for low balance notification
+                    checkLowBalanceNotification()
+                }
+                
+                // If time ran out, BLOCK IMMEDIATELY
+                if (MainActivity.availableMinutes <= 0) {
+                    showBlockedActivity(currentBlockedApp!!)
+                    checkLowBalanceNotification()
+                    stopRealtimeTracking()
+                    return
+                }
+                
+                // Continue tracking
+                handler.postDelayed(this, REALTIME_CHECK_INTERVAL_MS)
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        }
+        
+        // Start first check after 1 second
+        handler.postDelayed(realtimeTrackingRunnable!!, REALTIME_CHECK_INTERVAL_MS)
+    }
+    
+    private fun stopRealtimeTracking() {
+        realtimeTrackingRunnable?.let { handler.removeCallbacks(it) }
+        realtimeTrackingRunnable = null
+        currentBlockedApp = null
+        realtimeTrackingStartMs = 0
+        realtimeSecondsAccumulated = 0
+    }
+    
+    private fun saveAvailableMinutesToPrefs() {
+        val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putInt("available_minutes", MainActivity.availableMinutes).apply()
+    }
+    
+    private fun showBlockedActivity(packageName: String) {
+        val intent = Intent(this, BlockedActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("blocked_package", packageName)
+        }
+        startActivity(intent)
+    }
+    
+    private fun checkLowBalanceNotification() {
+        val balance = MainActivity.availableMinutes
+        
+        if (balance <= 0) {
+            if (!hasNotifiedZeroBalance) {
+                showZeroBalanceNotification()
+                hasNotifiedZeroBalance = true
+            }
+            return
+        }
+        hasNotifiedZeroBalance = false
+
+        if (balance > LOW_BALANCE_THRESHOLD_MINUTES) {
+            lastNotifiedLowBalance = -1
+            return
+        }
+
+        // Show notification when balance is 5, 4, 3, 2, or 1 minute
+        if (balance in 1..LOW_BALANCE_THRESHOLD_MINUTES && balance != lastNotifiedLowBalance) {
+            lastNotifiedLowBalance = balance
+            showLowBalanceNotification(balance)
         }
     }
     
-    private fun getBlockedAppsUsageMinutes(): Long {
-        try {
-            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            val calendar = java.util.Calendar.getInstance()
-            calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-            calendar.set(java.util.Calendar.MINUTE, 0)
-            calendar.set(java.util.Calendar.SECOND, 0)
-            
-            val startTime = calendar.timeInMillis
-            val endTime = System.currentTimeMillis()
-            
-            val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
-            var totalMinutes = 0L
-            
-            for (stat in stats) {
-                if (MainActivity.blockedPackages.contains(stat.packageName)) {
-                    totalMinutes += stat.totalTimeInForeground / 1000 / 60
-                }
-            }
-            return totalMinutes
-        } catch (e: Exception) {
-            return 0L
+    private fun showLowBalanceNotification(minutes: Int) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("⏰ Время заканчивается!")
+            .setContentText("Осталось $minutes мин. Потренируйтесь, чтобы заработать больше!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+        
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(LOW_BALANCE_NOTIFICATION_ID, notification)
+    }
+    
+    private fun showZeroBalanceNotification() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("🚫 Время закончилось!")
+            .setContentText("Заблокированные приложения недоступны. Потренируйтесь!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+        
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(ZERO_BALANCE_NOTIFICATION_ID, notification)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -177,89 +320,42 @@ class AppBlockerService : AccessibilityService() {
             packageName == "com.android.systemui" ||
             packageName == "com.android.launcher" ||
             packageName.contains("launcher")) {
-            // User left blocked app, stop time tracking
-            stopTimeTracking()
+            // User left blocked app, stop tracking
+            stopRealtimeTracking()
             return
         }
+        
+        // Reload latest data
+        MainActivity.loadFromPrefs(applicationContext)
         
         val isBlockedApp = MainActivity.blockedPackages.contains(packageName)
         
         if (isBlockedApp) {
-            // Immediately check and deduct time when entering blocked app
-            checkAndDeductTime()
-            
-            // Reload to get updated available minutes
-            MainActivity.loadFromPrefs(applicationContext)
-            
             if (MainActivity.availableMinutes <= 0) {
-                // No time available - block the app
-                stopTimeTracking()
-                val intent = Intent(this, BlockedActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    putExtra("blocked_package", packageName)
-                }
-                startActivity(intent)
+                // No time available - BLOCK immediately
+                stopRealtimeTracking()
+                showBlockedActivity(packageName)
+                checkLowBalanceNotification()
             } else {
-                // Time available - start tracking if not already tracking this app
+                // Time available - start real-time tracking if not already tracking this app
                 if (currentBlockedApp != packageName) {
-                    stopTimeTracking()
-                    startTimeTracking(packageName)
+                    stopRealtimeTracking()
+                    startRealtimeTracking(packageName)
                 }
             }
         } else {
             // Not a blocked app, stop tracking
-            stopTimeTracking()
+            stopRealtimeTracking()
         }
-    }
-    
-    private fun startTimeTracking(packageName: String) {
-        currentBlockedApp = packageName
-        timeTrackingStarted = System.currentTimeMillis()
-        
-        // Check time every 5 seconds to detect when time runs out faster
-        timeDeductionRunnable = object : Runnable {
-            override fun run() {
-                if (currentBlockedApp != null) {
-                    // Reload from prefs to get latest value
-                    MainActivity.loadFromPrefs(applicationContext)
-                    
-                    // Also check and deduct time based on UsageStats
-                    checkAndDeductTime()
-                    
-                    if (MainActivity.availableMinutes <= 0) {
-                        // Time ran out - block the app immediately
-                        val intent = Intent(this@AppBlockerService, BlockedActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            putExtra("blocked_package", currentBlockedApp)
-                        }
-                        startActivity(intent)
-                        stopTimeTracking()
-                    } else {
-                        // Continue checking every 5 seconds for faster response
-                        handler.postDelayed(this, 5_000)
-                    }
-                }
-            }
-        }
-        
-        // Start checking after 5 seconds
-        handler.postDelayed(timeDeductionRunnable!!, 5_000)
-    }
-    
-    private fun stopTimeTracking() {
-        timeDeductionRunnable?.let { handler.removeCallbacks(it) }
-        timeDeductionRunnable = null
-        currentBlockedApp = null
-        timeTrackingStarted = 0
     }
 
     override fun onInterrupt() {
-        stopTimeTracking()
+        stopRealtimeTracking()
     }
     
     override fun onDestroy() {
-        stopTimeTracking()
-        usageCheckRunnable?.let { handler.removeCallbacks(it) }
+        stopRealtimeTracking()
+        backgroundCheckRunnable?.let { handler.removeCallbacks(it) }
         super.onDestroy()
     }
 }

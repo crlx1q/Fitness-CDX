@@ -111,12 +111,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
 
   Future<void> _setupCamera(CameraDescription camera) async {
     // Stop image stream if running
-    if (_cameraController != null) {
-      try {
-        await _cameraController!.stopImageStream();
-      } catch (_) {}
-      await _cameraController!.dispose();
-    }
+    await _stopCamera(updateUi: false);
     
     _cameraController = CameraController(
       camera,
@@ -131,6 +126,22 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
     
     // Start image stream for pose detection
     await _startImageStream();
+  }
+
+  Future<void> _stopCamera({bool updateUi = true}) async {
+    final controller = _cameraController;
+    if (controller == null) return;
+    _cameraController = null;
+    if (updateUi && mounted) {
+      setState(() {});
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    try {
+      await controller.stopImageStream();
+    } catch (_) {}
+    try {
+      await controller.dispose();
+    } catch (_) {}
   }
 
   Future<void> _startImageStream() async {
@@ -222,10 +233,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
     context.read<AppProvider>().setUsageCheckMode(UsageCheckMode.foreground);
     // Disable wakelock when leaving
     WakelockPlus.disable();
-    try {
-      _cameraController?.stopImageStream();
-    } catch (_) {}
-    _cameraController?.dispose();
+    _stopCamera(updateUi: false);
     _poseService.dispose();
     _exerciseProvider.dispose();
     super.dispose();
@@ -420,24 +428,15 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
                       // Counter with goal
                       Consumer<AppProvider>(
                         builder: (context, appProvider, _) {
-                          final settings = appProvider.settings;
                           int? goal;
                           // Set goal based on exercise type
                           switch (widget.exerciseType) {
-                            case ExerciseType.pushUp:
-                            case ExerciseType.jumpingJack:
-                            case ExerciseType.highKnees:
-                              goal = settings.pushUpRequirement;
-                              break;
-                            case ExerciseType.squat:
-                            case ExerciseType.lunge:
-                              goal = settings.squatRequirement;
-                              break;
                             case ExerciseType.plank:
-                              goal = null; // Time-based, no goal format
-                              break;
                             case ExerciseType.freeActivity:
-                              goal = null; // Free activity is time-based, no numeric goal
+                              goal = null; // Time-based, no numeric goal
+                              break;
+                            default:
+                              goal = appProvider.getRequirementForExercise(widget.exerciseType);
                               break;
                           }
                           return ExerciseCounter(
@@ -454,7 +453,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: provider.currentCount > 0 
+                          onPressed: provider.potentialReward > 0
                               ? () => _finishExercise(provider) 
                               : null,
                           style: ElevatedButton.styleFrom(
@@ -538,10 +537,11 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
   }
 
   void _showExitDialog(ExerciseProvider provider) {
-    if (provider.currentCount == 0) {
-      Navigator.pop(context);
-      return;
-    }
+    final hasProgress = provider.currentCount > 0;
+    final hasReward = provider.potentialReward > 0;
+    final rewardLine = hasReward
+        ? '\nЗаработано: +${formatMinutes(provider.potentialReward)}'
+        : '';
 
     showDialog(
       context: context,
@@ -549,25 +549,30 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
         backgroundColor: AppColors.surface,
         title: const Text('Завершить тренировку?'),
         content: Text(
-          'Вы выполнили ${provider.currentCount} ${widget.exerciseType.displayName.toLowerCase()}.\n'
-          'Заработано: +${formatMinutes(provider.potentialReward)}',
+          'Вы выполнили ${provider.currentCount} ${widget.exerciseType.displayName.toLowerCase()}.'
+          '$rewardLine',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Продолжить'),
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _finishExercise(provider);
-            },
-            child: const Text('Завершить'),
-          ),
+          if (hasReward)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _finishExercise(provider);
+              },
+              child: const Text('Завершить'),
+            ),
           TextButton(
             onPressed: () async {
-              // Save progress for later continuation
-              await provider.saveProgress();
+              if (hasProgress) {
+                // Save progress for later continuation
+                await provider.saveProgress();
+              }
+              await provider.stopTracking(save: false);
+              await _stopCamera();
               if (mounted) {
                 Navigator.pop(context);
                 Navigator.pop(this.context);
@@ -585,6 +590,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with WidgetsBindingObse
     final session = await provider.stopTracking(save: true);
     
     if (session != null && mounted) {
+      await _stopCamera();
       // Show success dialog
       await showDialog(
         context: context,

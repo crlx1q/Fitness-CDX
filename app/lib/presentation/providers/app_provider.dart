@@ -25,9 +25,12 @@ class AppProvider extends ChangeNotifier {
   List<BlockedApp> _blockedApps = [];
   List<InstalledApp> _installedApps = [];
   bool _isLoading = true;
+  bool _isSyncingBalance = false;
   bool _hasAccessibilityPermission = false;
   bool _hasUsageStatsPermission = false;
+  bool _isDeviceAdminEnabled = false;
   int _lastNotifiedBalance = -1; // Track balance for low-balance notification
+  bool _forceSyncToNative = false;
 
   // Getters
   UserStats get userStats => _userStats;
@@ -36,8 +39,10 @@ class AppProvider extends ChangeNotifier {
   List<BlockedApp> get blockedApps => _blockedApps;
   List<InstalledApp> get installedApps => _installedApps;
   bool get isLoading => _isLoading;
+  bool get isSyncingBalance => _isSyncingBalance;
   bool get hasAccessibilityPermission => _hasAccessibilityPermission;
   bool get hasUsageStatsPermission => _hasUsageStatsPermission;
+  bool get isDeviceAdminEnabled => _isDeviceAdminEnabled;
   bool get hasAllPermissions => _hasAccessibilityPermission && _hasUsageStatsPermission;
   StorageRepository get storage => _storage;
   
@@ -60,6 +65,7 @@ class AppProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
+    bool shouldSync = false;
     try {
       // Initialize storage only - notifications init lazily when needed
       await _storage.initialize();
@@ -70,16 +76,14 @@ class AppProvider extends ChangeNotifier {
       _blockedApps = _storage.getBlockedApps();
       
       // Check and perform daily reset if needed
+      final beforeReset = _storage.getDailyBalance();
       _dailyBalance = await _storage.checkDailyReset(
         _settings.difficulty.freeAllowanceMinutes,
       );
+      _forceSyncToNative = beforeReset.lastResetDate != _dailyBalance.lastResetDate;
       
       // Quick permission check - don't block UI
       unawaited(refreshPermissions());
-      
-      // CRITICAL: Sync FROM native first to fix the sync bug
-      // Native may have deducted time while Flutter app was closed
-      await _syncFromNative();
       
       // Then sync blocked apps to native
       unawaited(_syncBlockedApps());
@@ -95,12 +99,18 @@ class AppProvider extends ChangeNotifier {
       
       // Schedule morning notification
       _scheduleMorningNotification();
+
+      shouldSync = true;
     } catch (e) {
       debugPrint('Error initializing app: $e');
     }
 
     _isLoading = false;
     notifyListeners();
+
+    if (shouldSync) {
+      unawaited(forceTimeSync());
+    }
     
     // Don't load installed apps on startup - defer to when AppsScreen is opened
     // This significantly improves startup time
@@ -128,53 +138,80 @@ class AppProvider extends ChangeNotifier {
   }
   
   /// Force immediate time sync (call when app comes to foreground)
+  /// Shows skeleton animation while syncing
   Future<void> forceTimeSync() async {
-    await _syncFromNative();
-    await checkAndDeductUsageTime();
+    if (_isSyncingBalance) return;
+    _isSyncingBalance = true;
+    notifyListeners();
+
+    final startedAt = DateTime.now();
+    try {
+      await _syncFromNative();
+      _checkLowBalanceNotification();
+    } finally {
+      final elapsed = DateTime.now().difference(startedAt);
+      const minIndicator = Duration(milliseconds: 400);
+      if (elapsed < minIndicator) {
+        await Future.delayed(minIndicator - elapsed);
+      }
+      _isSyncingBalance = false;
+      notifyListeners();
+    }
   }
   
-  /// Sync time FROM native SharedPreferences
-  /// This fixes the bug where native deducted time while Flutter was closed
+  /// Sync time between Flutter (Hive) and Native (SharedPreferences)
+  /// Native service deducts time in real-time while Flutter is closed.
+  /// This method syncs the two sources of truth.
   Future<void> _syncFromNative() async {
     try {
       final nativeMinutes = await _native.getAvailableTime();
-      
-      // -1 means error, don't sync
-      if (nativeMinutes < 0) return;
-      
       final flutterMinutes = _dailyBalance.usableMinutes;
       
-      // If native has less time than Flutter, native deducted while app was closed
-      // We need to consume the difference in Flutter's Hive storage
+      debugPrint('Time sync: native=$nativeMinutes, flutter=$flutterMinutes');
+
+      if (_forceSyncToNative) {
+        _forceSyncToNative = false;
+        await _native.setAvailableTime(flutterMinutes);
+        return;
+      }
+      
+      // -1 means error reading from native, sync TO native
+      if (nativeMinutes < 0) {
+        debugPrint('Native read error, syncing TO native: $flutterMinutes');
+        await _native.setAvailableTime(flutterMinutes);
+        return;
+      }
+      
+      // Case 1: Native has less time - native deducted while Flutter was closed
+      // Consume the difference from Flutter's balance
       if (nativeMinutes < flutterMinutes) {
-        final isFreshSession = nativeMinutes == 0 &&
-            _userStats.totalSpentMinutes == 0 &&
-            _dailyBalance.earnedBalance == 0 &&
-            _dailyBalance.debtMinutes == 0 &&
-            _dailyBalance.debtCreditRemaining == 0 &&
-            _dailyBalance.freeBalance == _settings.difficulty.freeAllowanceMinutes;
-        if (isFreshSession) {
-          debugPrint('Syncing TO native: setting $flutterMinutes minutes (fresh start)');
-          await _native.setAvailableTime(flutterMinutes);
-        } else {
-          final diff = flutterMinutes - nativeMinutes;
-          debugPrint('Syncing FROM native: consuming $diff minutes (native=$nativeMinutes, flutter=$flutterMinutes)');
-          final consumed = await _storage.consumeBalanceTime(diff);
-          if (consumed > 0) {
-            await _storage.addSpentMinutesToDaily(consumed);
-          }
-          _dailyBalance = _storage.getDailyBalance();
-          _userStats = _storage.getUserStats();
-          notifyListeners();
+        final diff = flutterMinutes - nativeMinutes;
+        debugPrint('Syncing FROM native: consuming $diff minutes');
+        
+        final consumed = await _storage.consumeBalanceTime(diff);
+        if (consumed > 0) {
+          await _storage.addSpentMinutesToDaily(consumed);
         }
-      } else if (nativeMinutes > flutterMinutes) {
-        // Flutter has less - sync TO native (Flutter is source of truth for earned time)
-        debugPrint('Syncing TO native: setting $flutterMinutes minutes');
+        _dailyBalance = _storage.getDailyBalance();
+        _userStats = _storage.getUserStats();
+        
+        // After consuming, sync the updated balance back to native
+        // to ensure both are in sync
+        await _native.setAvailableTime(_dailyBalance.usableMinutes);
+        notifyListeners();
+      } 
+      // Case 2: Native has more or equal - sync Flutter's balance TO native
+      // Flutter is source of truth (it has earned time, daily reset, etc.)
+      else {
+        debugPrint('Syncing TO native: $flutterMinutes');
         await _native.setAvailableTime(flutterMinutes);
       }
-      // If equal, no sync needed
     } catch (e) {
-      debugPrint('Error syncing from native: $e');
+      debugPrint('Error syncing with native: $e');
+      // On error, try to sync TO native anyway
+      try {
+        await _native.setAvailableTime(_dailyBalance.usableMinutes);
+      } catch (_) {}
     }
   }
   
@@ -200,6 +237,7 @@ class AppProvider extends ChangeNotifier {
     );
     
     // Sync with native
+    _forceSyncToNative = true;
     await _native.setAvailableTime(_dailyBalance.usableMinutes);
     
     // Schedule morning notification
@@ -217,62 +255,45 @@ class AppProvider extends ChangeNotifier {
     );
   }
   
-  /// Check usage stats and deduct time spent in blocked apps
+  /// Check and sync time with native service
+  /// Native service handles real-time deduction, we just sync the result
   Future<void> checkAndDeductUsageTime() async {
-    if (!_hasUsageStatsPermission || _blockedApps.isEmpty) return;
-    if (!_dailyBalance.canUseTime) return; // Can't use time if debt needs paying
+    if (_blockedApps.isEmpty) return;
     
-    // Get deducted time from native (based on UsageStats)
-    final deducted = await _native.checkAndDeductTime();
+    // Just sync from native - the native service already deducts time
+    // We don't deduct here to avoid double-deduction
+    await _syncFromNative();
     
-    if (deducted > 0) {
-      // Use the new balance system - consumes from freeBalance first, then earnedBalance
-      final consumed = await _storage.consumeBalanceTime(deducted);
-      _dailyBalance = _storage.getDailyBalance();
-      _userStats = _storage.getUserStats();
-      
-      // Also update daily stats for proper tracking
-      if (consumed > 0) {
-        await _storage.addSpentMinutesToDaily(consumed);
-      }
-      
-      // Sync updated balance with native
-      await _native.setAvailableTime(_dailyBalance.usableMinutes);
-      
-      // Check for low balance notification
-      _checkLowBalanceNotification();
-      
-      notifyListeners();
-    }
-    // Don't sync TO native if no deduction - _syncFromNative already handles sync
+    // Check for low balance notification
+    _checkLowBalanceNotification();
   }
   
   /// Check and show low balance notification
+  /// NOTE: Low balance notifications are now handled by native AppBlockerService
+  /// in real-time when user is in blocked apps. This Flutter-side check is disabled
+  /// to avoid duplicate notifications.
   void _checkLowBalanceNotification() {
-    if (!_settings.notificationsEnabled) return;
-    
-    final balance = _dailyBalance.usableMinutes;
-    if (balance <= AppConstants.lowBalanceThreshold && 
-        balance > 0 && 
-        _lastNotifiedBalance != balance) {
-      _lastNotifiedBalance = balance;
-      _notifications.showLowBalanceNotification(balance);
-    }
+    // Native service handles low balance notifications in background
+    // We only track the balance for internal state here
+    _lastNotifiedBalance = _dailyBalance.usableMinutes;
   }
   
-  /// Handle time changes from native side
+  /// Handle time changes from native side (called via MethodChannel callback)
   void _onNativeTimeChanged(int newMinutes) {
-    // Sync with our balance system
+    // Native service deducted time - sync with Hive balance
     final currentUsable = _dailyBalance.usableMinutes;
-    if (currentUsable != newMinutes && newMinutes < currentUsable) {
+    if (newMinutes < currentUsable) {
       final diff = currentUsable - newMinutes;
-      _storage.consumeBalanceTime(diff).then((consumed) {
+      // Consume from Hive balance to stay in sync
+      _storage.consumeBalanceTime(diff).then((consumed) async {
         if (consumed > 0) {
-          _storage.addSpentMinutesToDaily(consumed);
+          await _storage.addSpentMinutesToDaily(consumed);
         }
+        _dailyBalance = _storage.getDailyBalance();
+        _userStats = _storage.getUserStats();
+        _checkLowBalanceNotification();
+        notifyListeners();
       });
-      _dailyBalance = _storage.getDailyBalance();
-      notifyListeners();
     }
   }
 
@@ -280,6 +301,7 @@ class AppProvider extends ChangeNotifier {
   Future<void> refreshPermissions() async {
     _hasAccessibilityPermission = await _native.isAccessibilityServiceEnabled();
     _hasUsageStatsPermission = await _native.isUsageStatsPermissionGranted();
+    _isDeviceAdminEnabled = await _native.isDeviceAdminEnabled();
     notifyListeners();
   }
 
@@ -594,6 +616,33 @@ class AppProvider extends ChangeNotifier {
   /// Stop the app blocking service
   Future<void> stopBlockingService() async {
     await _native.stopBlockingService();
+  }
+
+  // ============ Device Admin (Uninstall Protection) ============
+
+  /// Enable device admin for uninstall protection
+  Future<void> enableDeviceAdmin() async {
+    await _native.enableDeviceAdmin();
+  }
+
+  /// Disable device admin with password verification
+  Future<bool> disableDeviceAdmin(String password) async {
+    final result = await _native.disableDeviceAdmin(password);
+    if (result) {
+      _isDeviceAdminEnabled = false;
+      notifyListeners();
+    }
+    return result;
+  }
+
+  /// Open device admin settings
+  Future<void> openDeviceAdminSettings() async {
+    await _native.openDeviceAdminSettings();
+  }
+
+  /// Verify uninstall password
+  Future<bool> verifyUninstallPassword(String password) async {
+    return await _native.verifyUninstallPassword(password);
   }
 }
 

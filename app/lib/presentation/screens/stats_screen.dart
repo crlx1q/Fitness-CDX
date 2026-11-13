@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:fitness_coach/core/constants/app_constants.dart';
 import 'package:fitness_coach/core/theme/app_theme.dart';
 import 'package:fitness_coach/domain/models/user_stats.dart';
 import 'package:fitness_coach/presentation/providers/app_provider.dart';
@@ -20,8 +21,11 @@ class _StatsScreenState extends State<StatsScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppProvider>(
       builder: (context, provider, _) {
-        final stats = provider.userStats;
-        final dailyStats = _getDailyStats(provider);
+        final userStats = provider.userStats;
+        final allDailyStats = _getDailyStats(provider);
+        final recentDailyStats = _getRecentDailyStats(allDailyStats, userStats.createdAt);
+        final chartStats = _getWeekStats(recentDailyStats, userStats.createdAt);
+        final summary = _buildSummaryStats(recentDailyStats);
 
         return SafeArea(
           child: CustomScrollView(
@@ -59,25 +63,25 @@ class _StatsScreenState extends State<StatsScreen> {
                     children: [
                       _SummaryCard(
                         title: 'Всего тренировок',
-                        value: stats.totalWorkouts.toString(),
+                        value: summary.totalWorkouts.toString(),
                         icon: Icons.fitness_center,
                         color: AppColors.primary,
                       ),
                       _SummaryCard(
                         title: 'Текущий стрик',
-                        value: '${stats.currentStreak} дн.',
+                        value: '${summary.currentStreak} дн.',
                         icon: Icons.local_fire_department,
                         color: AppColors.primary,
                       ),
                       _SummaryCard(
                         title: 'Лучший стрик',
-                        value: '${stats.longestStreak} дн.',
+                        value: '${summary.longestStreak} дн.',
                         icon: Icons.emoji_events,
                         color: AppColors.primary,
                       ),
                       _SummaryCard(
                         title: 'Заработано времени',
-                        value: _formatMinutes(stats.totalEarnedMinutes),
+                        value: _formatMinutes(summary.totalEarnedMinutes),
                         icon: Icons.timer,
                         color: AppColors.primary,
                       ),
@@ -116,10 +120,19 @@ class _StatsScreenState extends State<StatsScreen> {
                           color: AppColors.textSecondary,
                         ),
                       ),
+                      if (chartStats.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatChartRange(chartStats),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.textHint,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       SizedBox(
                         height: 200,
-                        child: _buildChart(dailyStats),
+                        child: _buildChart(chartStats),
                       ),
                     ],
                   ),
@@ -140,7 +153,7 @@ class _StatsScreenState extends State<StatsScreen> {
                       ),
                       const Spacer(),
                       Text(
-                        '${dailyStats.length} записано',
+                        '${recentDailyStats.length} записано',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -151,7 +164,8 @@ class _StatsScreenState extends State<StatsScreen> {
               ),
               SliverToBoxAdapter(
                 child: _DailyPager(
-                  stats: dailyStats.reversed.toList(),
+                  stats: recentDailyStats,
+                  initialPage: recentDailyStats.isEmpty ? 0 : recentDailyStats.length - 1,
                   onTap: (dayStats) => _showDailyDetails(context, dayStats),
                 ),
               ),
@@ -160,7 +174,7 @@ class _StatsScreenState extends State<StatsScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
-                  child: _ExerciseProgressCard(stats: stats),
+                  child: _ExerciseProgressCard(stats: userStats),
                 ),
               ),
 
@@ -178,7 +192,7 @@ class _StatsScreenState extends State<StatsScreen> {
               ),
 
               SliverToBoxAdapter(
-                child: _buildRecordsSection(context, stats, dailyStats),
+                child: _buildRecordsSection(context, summary, recentDailyStats),
               ),
 
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -190,12 +204,105 @@ class _StatsScreenState extends State<StatsScreen> {
   }
 
   List<DailyStats> _getDailyStats(AppProvider provider) {
-    final stats = provider
-        .getAllDailyStats()
-        .where((stat) => _hasRecordedActivity(stat))
-        .toList();
+    final stats = provider.getAllDailyStats().toList();
     stats.sort((a, b) => a.date.compareTo(b.date));
     return stats;
+  }
+
+  List<DailyStats> _getRecentDailyStats(List<DailyStats> dailyStats, DateTime createdAt) {
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final createdDate = DateTime(createdAt.year, createdAt.month, createdAt.day);
+    final retentionDays = AppConstants.dailyStatsRetentionDays;
+    final startCandidate = todayDate.subtract(Duration(days: retentionDays - 1));
+    final start = createdDate.isAfter(startCandidate) ? createdDate : startCandidate;
+
+    final byKey = {for (final stat in dailyStats) stat.dateKey: stat};
+    final days = todayDate.difference(start).inDays;
+    return List.generate(days + 1, (index) {
+      final date = start.add(Duration(days: index));
+      final key = DailyStats.dateToKey(date);
+      return byKey[key] ?? DailyStats(dateKey: key);
+    });
+  }
+
+  List<DailyStats> _getWeekStats(List<DailyStats> recentDailyStats, DateTime createdAt) {
+    if (recentDailyStats.isEmpty) return [];
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final weekStartWeekday = createdAt.weekday;
+    var offset = todayDate.weekday - weekStartWeekday;
+    if (offset < 0) {
+      offset += 7;
+    }
+    final start = todayDate.subtract(Duration(days: offset));
+    final byKey = {for (final stat in recentDailyStats) stat.dateKey: stat};
+    return List.generate(7, (index) {
+      final date = start.add(Duration(days: index));
+      final key = DailyStats.dateToKey(date);
+      return byKey[key] ?? DailyStats(dateKey: key);
+    });
+  }
+
+  _SummaryStats _buildSummaryStats(List<DailyStats> dailyStats) {
+    var totalWorkouts = 0;
+    var totalEarnedMinutes = 0;
+    var totalSpentMinutes = 0;
+
+    for (final day in dailyStats) {
+      totalWorkouts += day.workoutCount;
+      totalEarnedMinutes += day.earnedMinutes;
+      totalSpentMinutes += day.spentMinutes;
+    }
+
+    return _SummaryStats(
+      totalWorkouts: totalWorkouts,
+      totalEarnedMinutes: totalEarnedMinutes,
+      totalSpentMinutes: totalSpentMinutes,
+      currentStreak: _calculateCurrentStreak(dailyStats),
+      longestStreak: _calculateLongestStreak(dailyStats),
+      daysCount: dailyStats.length,
+    );
+  }
+
+  int _calculateCurrentStreak(List<DailyStats> dailyStats) {
+    var streak = 0;
+    for (int i = dailyStats.length - 1; i >= 0; i--) {
+      if (_hasWorkoutActivity(dailyStats[i])) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }
+
+  int _calculateLongestStreak(List<DailyStats> dailyStats) {
+    var longest = 0;
+    var current = 0;
+    for (final day in dailyStats) {
+      if (_hasWorkoutActivity(day)) {
+        current++;
+        if (current > longest) {
+          longest = current;
+        }
+      } else {
+        current = 0;
+      }
+    }
+    return longest;
+  }
+
+  String _formatChartRange(List<DailyStats> dailyStats) {
+    if (dailyStats.isEmpty) return '';
+    final start = dailyStats.first.date;
+    final end = dailyStats.last.date;
+    if (DateUtils.isSameDay(start, end)) {
+      return DateFormat('d MMM', 'ru').format(start);
+    }
+    final startLabel = DateFormat('d MMM', 'ru').format(start);
+    final endLabel = DateFormat('d MMM', 'ru').format(end);
+    return '$startLabel – $endLabel';
   }
 
   Widget _buildChart(List<DailyStats> dailyStats) {
@@ -218,7 +325,11 @@ class _StatsScreenState extends State<StatsScreen> {
             BarChartRodData(
               toY: value.toDouble(),
               color: AppColors.primary,
-              width: dailyStats.length <= 7 ? 24 : 10,
+              width: dailyStats.length <= 7
+                  ? 24
+                  : dailyStats.length <= 14
+                      ? 14
+                      : 8,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
             ),
           ],
@@ -291,7 +402,11 @@ class _StatsScreenState extends State<StatsScreen> {
     );
   }
 
-  Widget _buildRecordsSection(BuildContext context, UserStats stats, List<DailyStats> dailyStats) {
+  Widget _buildRecordsSection(
+    BuildContext context,
+    _SummaryStats summary,
+    List<DailyStats> dailyStats,
+  ) {
     // Find best day
     DailyStats? bestDay;
     for (final day in dailyStats) {
@@ -315,7 +430,7 @@ class _StatsScreenState extends State<StatsScreen> {
               icon: Icons.emoji_events,
               iconColor: AppColors.primary,
               title: 'Лучший стрик',
-              value: '${stats.longestStreak} дней',
+              value: '${summary.longestStreak} дней',
             ),
             const Divider(color: AppColors.surfaceLight, height: 24),
             _RecordRow(
@@ -323,22 +438,22 @@ class _StatsScreenState extends State<StatsScreen> {
               iconColor: AppColors.primary,
               title: 'Лучший день',
               value: bestDay != null 
-                  ? '${_formatMinutes(bestDay.earnedMinutes)} (${DateFormat('d MMM').format(bestDay.date)})' 
-                  : '—',
+                  ? '${_formatMinutes(bestDay.earnedMinutes)} (${DateFormat('d MMM', 'ru').format(bestDay.date)})' 
+                  : '-',
             ),
             const Divider(color: AppColors.surfaceLight, height: 24),
             _RecordRow(
               icon: Icons.calendar_today,
               iconColor: AppColors.primary,
-              title: 'Дней с FitLock',
-              value: '${DateTime.now().difference(stats.createdAt).inDays + 1} дней',
+              title: 'Дней в периоде',
+              value: '${summary.daysCount} дней',
             ),
             const Divider(color: AppColors.surfaceLight, height: 24),
             _RecordRow(
               icon: Icons.phone_android,
               iconColor: AppColors.primary,
               title: 'Потрачено времени',
-              value: _formatMinutes(stats.totalSpentMinutes),
+              value: _formatMinutes(summary.totalSpentMinutes),
             ),
           ],
         ),
@@ -388,10 +503,12 @@ class _StatsScreenState extends State<StatsScreen> {
 
 class _DailyPager extends StatelessWidget {
   final List<DailyStats> stats;
+  final int initialPage;
   final ValueChanged<DailyStats> onTap;
 
   const _DailyPager({
     required this.stats,
+    required this.initialPage,
     required this.onTap,
   });
 
@@ -416,10 +533,15 @@ class _DailyPager extends StatelessWidget {
       );
     }
 
+    final safeInitialPage = initialPage.clamp(0, stats.length - 1);
+
     return SizedBox(
-      height: 128,
+      height: 136,
       child: PageView.builder(
-        controller: PageController(viewportFraction: 0.85),
+        controller: PageController(
+          viewportFraction: 0.85,
+          initialPage: safeInitialPage,
+        ),
         itemCount: stats.length,
         itemBuilder: (context, index) {
           final dayStats = stats[index];
@@ -460,6 +582,7 @@ class _DailyStatsTile extends StatelessWidget {
           ),
         ),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -480,7 +603,6 @@ class _DailyStatsTile extends StatelessWidget {
               value: _formatMinutesValue(stats.spentMinutes),
               color: AppColors.error,
             ),
-            const Spacer(),
             Align(
               alignment: Alignment.bottomRight,
               child: Icon(Icons.chevron_right, color: AppColors.textSecondary, size: 20),
@@ -513,6 +635,8 @@ class _DailyStatChip extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
         Text(
@@ -572,8 +696,26 @@ String _formatMinutesValue(int minutes) {
   return '${minutes}м';
 }
 
-bool _hasRecordedActivity(DailyStats stats) {
-  return stats.earnedMinutes > 0 || stats.spentMinutes > 0 || stats.workoutCount > 0;
+bool _hasWorkoutActivity(DailyStats stats) {
+  return stats.workoutCount > 0;
+}
+
+class _SummaryStats {
+  final int totalWorkouts;
+  final int totalEarnedMinutes;
+  final int totalSpentMinutes;
+  final int currentStreak;
+  final int longestStreak;
+  final int daysCount;
+
+  const _SummaryStats({
+    required this.totalWorkouts,
+    required this.totalEarnedMinutes,
+    required this.totalSpentMinutes,
+    required this.currentStreak,
+    required this.longestStreak,
+    required this.daysCount,
+  });
 }
 
 class _SummaryCard extends StatelessWidget {

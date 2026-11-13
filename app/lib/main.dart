@@ -52,8 +52,35 @@ class FitLockApp extends StatelessWidget {
   }
 }
 
-class _AppLoader extends StatelessWidget {
+class _AppLoader extends StatefulWidget {
   const _AppLoader();
+
+  @override
+  State<_AppLoader> createState() => _AppLoaderState();
+}
+
+class _AppLoaderState extends State<_AppLoader> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App came to foreground - sync with native service
+      final provider = context.read<AppProvider>();
+      provider.forceTimeSync();
+      provider.refreshPermissions();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

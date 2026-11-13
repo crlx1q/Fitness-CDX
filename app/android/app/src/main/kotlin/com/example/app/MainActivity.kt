@@ -2,7 +2,9 @@ package com.fitlock.app
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.AppOpsManager
+import android.app.admin.DevicePolicyManager
 import android.app.usage.UsageStatsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -27,6 +29,7 @@ class MainActivity : FlutterActivity() {
     private val PREFS_NAME = "fitlock_prefs"
     private val KEY_AVAILABLE_MINUTES = "available_minutes"
     private val KEY_BLOCKED_PACKAGES = "blocked_packages"
+    private val REQUEST_CODE_ENABLE_ADMIN = 1001
     
     companion object {
         var availableMinutes: Int = 0
@@ -131,6 +134,25 @@ class MainActivity : FlutterActivity() {
                 }
                 "switchCamera" -> {
                     result.success(null)
+                }
+                "isDeviceAdminEnabled" -> {
+                    result.success(isDeviceAdminEnabled())
+                }
+                "enableDeviceAdmin" -> {
+                    enableDeviceAdmin()
+                    result.success(null)
+                }
+                "disableDeviceAdmin" -> {
+                    val password = call.argument<String>("password") ?: ""
+                    result.success(disableDeviceAdmin(password))
+                }
+                "openDeviceAdminSettings" -> {
+                    openDeviceAdminSettings()
+                    result.success(null)
+                }
+                "verifyUninstallPassword" -> {
+                    val password = call.argument<String>("password") ?: ""
+                    result.success(verifyUninstallPassword(password))
                 }
                 else -> {
                     result.notImplemented()
@@ -422,5 +444,52 @@ class MainActivity : FlutterActivity() {
         val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         startActivity(intent)
+    }
+    
+    // Device Admin methods for uninstall protection
+    private fun getDeviceAdminComponentName(): ComponentName {
+        return ComponentName(this, FitLockDeviceAdminReceiver::class.java)
+    }
+    
+    private fun isDeviceAdminEnabled(): Boolean {
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        return dpm.isAdminActive(getDeviceAdminComponentName())
+    }
+    
+    private fun enableDeviceAdmin() {
+        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, getDeviceAdminComponentName())
+            putExtra(
+                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "FitLock нуждается в правах администратора для защиты от удаления. " +
+                "Это предотвратит случайное или несанкционированное удаление приложения."
+            )
+        }
+        startActivityForResult(intent, REQUEST_CODE_ENABLE_ADMIN)
+    }
+    
+    private fun disableDeviceAdmin(password: String): Boolean {
+        if (password != FitLockDeviceAdminReceiver.UNLOCK_PASSWORD) {
+            return false
+        }
+        
+        // Set flag to allow disable
+        val prefs = getSharedPreferences(FitLockDeviceAdminReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(FitLockDeviceAdminReceiver.KEY_DISABLE_ALLOWED, true).apply()
+        
+        // Remove device admin
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        dpm.removeActiveAdmin(getDeviceAdminComponentName())
+        return true
+    }
+    
+    private fun openDeviceAdminSettings() {
+        val intent = Intent(Settings.ACTION_SECURITY_SETTINGS)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        startActivity(intent)
+    }
+    
+    private fun verifyUninstallPassword(password: String): Boolean {
+        return password == FitLockDeviceAdminReceiver.UNLOCK_PASSWORD
     }
 }

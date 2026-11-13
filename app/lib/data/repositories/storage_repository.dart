@@ -378,19 +378,18 @@ class StorageRepository {
   Future<void> _pruneDailyStats() async {
     final now = DateTime.now();
     final cutoff = DateTime(now.year, now.month, now.day)
-        .subtract(const Duration(days: AppConstants.dailyStatsRetentionDays));
-    final toArchive = _dailyStatsBox.values
+        .subtract(const Duration(days: AppConstants.dailyStatsRetentionDays - 1));
+    final toDelete = _dailyStatsBox.values
         .where((stats) => stats.date.isBefore(cutoff))
         .toList();
-    if (toArchive.isEmpty) {
+    if (toDelete.isEmpty) {
       return;
     }
-    for (final daily in toArchive) {
-      final monthKey = MonthlyStats.monthToKey(daily.date);
-      final monthly = _monthlyStatsBox.get(monthKey) ?? MonthlyStats(monthKey: monthKey);
-      monthly.addDaily(daily);
-      await _monthlyStatsBox.put(monthKey, monthly);
+    for (final daily in toDelete) {
       await _dailyStatsBox.delete(daily.dateKey);
+    }
+    if (_monthlyStatsBox.isNotEmpty) {
+      await _monthlyStatsBox.clear();
     }
   }
 

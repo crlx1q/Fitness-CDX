@@ -11,6 +11,7 @@ class TimeBalanceCard extends StatelessWidget {
   final int earnedBalance;
   final int debtMinutes;
   final int debtCreditRemaining;
+  final bool isSyncing;
 
   const TimeBalanceCard({
     super.key,
@@ -22,13 +23,17 @@ class TimeBalanceCard extends StatelessWidget {
     this.earnedBalance = 0,
     this.debtMinutes = 0,
     this.debtCreditRemaining = 0,
+    this.isSyncing = false,
   });
 
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = AppColors.primary;
     final hasDebt = debtMinutes > 0;
-    final isLockedByDebt = hasDebt && debtCreditRemaining == 0;
+    final isLockedByDebt = hasDebt &&
+        debtCreditRemaining == 0 &&
+        freeBalance == 0 &&
+        earnedBalance == 0;
     final balanceColor = isLockedByDebt ? AppColors.textSecondary : AppColors.textPrimary;
     
     return GestureDetector(
@@ -88,23 +93,42 @@ class TimeBalanceCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  _formatTime(availableMinutes),
-                  style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: availableMinutes > 0
-                        ? balanceColor
-                        : (isLockedByDebt ? AppColors.textSecondary : AppColors.error),
+                if (isSyncing)
+                  _BalanceSkeleton()
+                else
+                  Text(
+                    _formatTime(availableMinutes),
+                    style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: availableMinutes > 0
+                          ? balanceColor
+                          : (isLockedByDebt ? AppColors.textSecondary : AppColors.error),
+                    ),
                   ),
-                ),
                 const SizedBox(width: 8),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    'доступно',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'доступно',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      if (isSyncing) ...[
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -361,5 +385,56 @@ class TimeBadge extends StatelessWidget {
       return mins > 0 ? '${hours}ч${mins}м' : '${hours}ч';
     }
     return '${minutes}м';
+  }
+}
+
+/// Skeleton animation for balance display during sync
+class _BalanceSkeleton extends StatefulWidget {
+  @override
+  State<_BalanceSkeleton> createState() => _BalanceSkeletonState();
+}
+
+class _BalanceSkeletonState extends State<_BalanceSkeleton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.3, end: 0.7).animate(_controller);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          width: 100,
+          height: 48,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(
+              colors: [
+                AppColors.textSecondary.withValues(alpha: _animation.value * 0.5),
+                AppColors.textSecondary.withValues(alpha: _animation.value),
+                AppColors.textSecondary.withValues(alpha: _animation.value * 0.5),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }

@@ -255,6 +255,90 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
               ),
 
               SliverToBoxAdapter(
+                child: _SectionHeader(title: 'Защита от удаления'),
+              ),
+
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          title: Row(
+                            children: [
+                              const Text('🔒', style: TextStyle(fontSize: 24)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Защита от удаления',
+                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              provider.isDeviceAdminEnabled
+                                  ? 'Приложение защищено от удаления'
+                                  : 'Включите для предотвращения удаления',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          value: provider.isDeviceAdminEnabled,
+                          onChanged: (value) {
+                            if (value) {
+                              provider.enableDeviceAdmin();
+                            } else {
+                              _showDisableProtectionDialog(context, provider);
+                            }
+                          },
+                        ),
+                        if (provider.isDeviceAdminEnabled) ...[
+                          const Divider(color: AppColors.surfaceLight, height: 1),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.success.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.shield,
+                                    color: AppColors.success,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Для удаления приложения потребуется кодовое слово',
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: AppColors.success,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ).animate().fadeIn(),
+                ),
+              ),
+
+              SliverToBoxAdapter(
                 child: _SectionHeader(title: 'Администрирование'),
               ),
 
@@ -474,6 +558,66 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                   }
                 },
                 child: const Text('Подтвердить'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showDisableProtectionDialog(BuildContext context, AppProvider provider) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('Отключение защиты'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Введите кодовое слово для отключения защиты от удаления:',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Кодовое слово',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final value = controller.text.trim();
+                  final success = await provider.disableDeviceAdmin(value);
+                  if (!success) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Неверное кодовое слово')),
+                      );
+                    }
+                    return;
+                  }
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Защита от удаления отключена')),
+                    );
+                  }
+                },
+                child: const Text('Отключить'),
               ),
             ],
           );

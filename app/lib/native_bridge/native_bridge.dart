@@ -245,6 +245,66 @@ class NativeBridge {
     }
   }
 
+  // ============ Device Admin (Uninstall Protection) ============
+
+  /// Check if device admin is enabled (uninstall protection active)
+  Future<bool> isDeviceAdminEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isDeviceAdminEnabled');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('Failed to check device admin status: ${e.message}');
+      return false;
+    }
+  }
+
+  /// Enable device admin (activate uninstall protection)
+  Future<void> enableDeviceAdmin() async {
+    try {
+      await _channel.invokeMethod('enableDeviceAdmin');
+    } on PlatformException catch (e) {
+      print('Failed to enable device admin: ${e.message}');
+    }
+  }
+
+  /// Disable device admin with password verification
+  /// Returns true if password is correct and admin is disabled
+  Future<bool> disableDeviceAdmin(String password) async {
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'disableDeviceAdmin',
+        {'password': password},
+      );
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('Failed to disable device admin: ${e.message}');
+      return false;
+    }
+  }
+
+  /// Open device admin settings
+  Future<void> openDeviceAdminSettings() async {
+    try {
+      await _channel.invokeMethod('openDeviceAdminSettings');
+    } on PlatformException catch (e) {
+      print('Failed to open device admin settings: ${e.message}');
+    }
+  }
+
+  /// Verify uninstall password without disabling
+  Future<bool> verifyUninstallPassword(String password) async {
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'verifyUninstallPassword',
+        {'password': password},
+      );
+      return result ?? false;
+    } on PlatformException catch (e) {
+      print('Failed to verify password: ${e.message}');
+      return false;
+    }
+  }
+
   // ============ Cleanup ============
 
   void dispose() {

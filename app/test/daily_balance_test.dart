@@ -67,6 +67,45 @@ void main() {
       });
     });
 
+    group('Debt Handling', () {
+      test('Usable minutes include free and earned even with debt', () {
+        balance = DailyBalance(
+          freeBalance: 30,
+          earnedBalance: 15,
+          debtMinutes: 10,
+          debtCreditRemaining: 0,
+        );
+        expect(balance.usableMinutes, 45);
+        expect(balance.canUseTime, true);
+      });
+
+      test('Usable minutes include debt credit when debt active', () {
+        balance = DailyBalance(
+          freeBalance: 30,
+          earnedBalance: 0,
+          debtMinutes: 5,
+          debtCreditRemaining: 12,
+        );
+        expect(balance.usableMinutes, 42);
+        expect(balance.canUseTime, true);
+      });
+
+      test('Consume time uses free, then earned, then debt credit', () {
+        balance = DailyBalance(
+          freeBalance: 5,
+          earnedBalance: 3,
+          debtMinutes: 5,
+          debtCreditRemaining: 10,
+        );
+        final consumed = balance.consumeTime(12);
+        expect(consumed, 12);
+        expect(balance.freeBalance, 0);
+        expect(balance.earnedBalance, 0);
+        expect(balance.debtCreditRemaining, 6);
+        expect(balance.debtMinutes, 9);
+      });
+    });
+
     group('Daily Reset', () {
       test('Needs daily reset on new day', () {
         balance = DailyBalance(lastResetDate: '2025-01-17');
